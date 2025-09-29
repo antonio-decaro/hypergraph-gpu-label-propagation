@@ -1,5 +1,4 @@
-#ifndef HYPERGRAPH_HPP
-#define HYPERGRAPH_HPP
+#pragma once
 
 #include <vector>
 #include <memory>
@@ -17,6 +16,19 @@ public:
     using VertexId = std::size_t;
     using EdgeId = std::size_t;
     using Label = int;
+
+    /**
+    * @brief Flatten hypergraph data for GPU processing
+    */
+    struct FlatHypergraph {
+        std::vector<Hypergraph::VertexId> edge_vertices;    // Flattened vertex list
+        std::vector<std::size_t> edge_offsets;              // Offsets into edge_vertices
+        std::vector<Hypergraph::EdgeId> vertex_edges;       // Flattened edge list per vertex
+        std::vector<std::size_t> vertex_offsets;            // Offsets into vertex_edges
+        std::vector<std::size_t> edge_sizes;                // Size of each edge
+        std::size_t num_vertices;
+        std::size_t num_edges;
+    };
 
     /**
      * @brief Constructor
@@ -71,7 +83,13 @@ public:
      */
     const std::vector<std::size_t>& get_edge_sizes() const { return edge_sizes_; }
 
+    /**
+     * @brief Flatten hypergraph data for GPU processing
+     */
+    FlatHypergraph flatten() const;
+
 private:
+
     std::size_t num_vertices_;
     std::vector<std::vector<VertexId>> hyperedges_;         // hyperedges_[e] = vertices in edge e
     std::vector<std::vector<EdgeId>> incident_edges_;       // incident_edges_[v] = edges incident to vertex v
@@ -101,5 +119,3 @@ public:
      */
     virtual std::string get_name() const = 0;
 };
-
-#endif // HYPERGRAPH_HPP
