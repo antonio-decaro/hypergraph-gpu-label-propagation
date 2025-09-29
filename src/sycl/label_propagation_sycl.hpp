@@ -32,17 +32,16 @@ public:
 
 private:
     sycl::queue queue_;
-    sycl::device device_;
     
     /**
      * @brief Flatten hypergraph data for GPU processing
      */
-    struct FlatHypergraph {
-        std::vector<Hypergraph::VertexId> edge_vertices;    // Flattened vertex list
-        std::vector<std::size_t> edge_offsets;              // Offsets into edge_vertices
-        std::vector<Hypergraph::EdgeId> vertex_edges;       // Flattened edge list per vertex
-        std::vector<std::size_t> vertex_offsets;            // Offsets into vertex_edges
-        std::vector<std::size_t> edge_sizes;                // Size of each edge
+    struct DeviceFlatHypergraph {
+        Hypergraph::VertexId* edge_vertices;    // Flattened vertex list
+        std::size_t* edge_offsets;              // Offsets into edge_vertices
+        Hypergraph::EdgeId* vertex_edges;       // Flattened edge list per vertex
+        std::size_t* vertex_offsets;            // Offsets into vertex_edges
+        std::size_t* edge_sizes;                // Size of each edge
         std::size_t num_vertices;
         std::size_t num_edges;
     };
@@ -50,15 +49,58 @@ private:
     /**
      * @brief Convert hypergraph to flat representation
      */
-    FlatHypergraph flatten_hypergraph(const Hypergraph& hypergraph);
+    DeviceFlatHypergraph create_device_hypergraph(const Hypergraph& hypergraph) {
+        auto flat_hg = hypergraph.flatten();
+
+        // Allocate USM memory for flat structures
+        DeviceFlatHypergraph device_flat_hg;
+        device_flat_hg.edge_vertices = sycl::malloc_device<Hypergraph::VertexId>(flat_hg.edge_vertices.size(), queue_);
+        device_flat_hg.edge_offsets = sycl::malloc_device<std::size_t>(flat_hg.edge_offsets.size(), queue_);
+        device_flat_hg.vertex_edges = sycl::malloc_device<Hypergraph::EdgeId>(flat_hg.vertex_edges.size(), queue_);
+        device_flat_hg.vertex_offsets = sycl::malloc_device<std::size_t>(flat_hg.vertex_offsets.size(), queue_);
+        device_flat_hg.edge_sizes = sycl::malloc_device<std::size_t>(flat_hg.edge_sizes.size(), queue_);
+        device_flat_hg.num_vertices = flat_hg.num_vertices;
+        device_flat_hg.num_edges = flat_hg.num_edges;
+
+        // Copy data to device
+        queue_.copy(flat_hg.edge_vertices.data(), device_flat_hg.edge_vertices, flat_hg.edge_vertices.size()).wait();
+        queue_.copy(flat_hg.edge_offsets.data(), device_flat_hg.edge_offsets, flat_hg.edge_offsets.size()).wait();
+        queue_.copy(flat_hg.vertex_edges.data(), device_flat_hg.vertex_edges, flat_hg.vertex_edges.size()).wait();
+        queue_.copy(flat_hg.vertex_offsets.data(), device_flat_hg.vertex_offsets, flat_hg.vertex_offsets.size()).wait();
+        queue_.copy(flat_hg.edge_sizes.data(), device_flat_hg.edge_sizes, flat_hg.edge_sizes.size()).wait();
+
+        return device_flat_hg;
+    }
+
+    void cleanup_flat_hypergraph(DeviceFlatHypergraph& flat_hg) {
+        if (flat_hg.edge_vertices) {
+            sycl::free(flat_hg.edge_vertices, queue_);
+            flat_hg.edge_vertices = nullptr;
+        }
+        if (flat_hg.edge_offsets) {
+            sycl::free(flat_hg.edge_offsets, queue_);
+            flat_hg.edge_offsets = nullptr;
+        }
+        if (flat_hg.vertex_edges) {
+            sycl::free(flat_hg.vertex_edges, queue_);
+            flat_hg.vertex_edges = nullptr;
+        }
+        if (flat_hg.vertex_offsets) {
+            sycl::free(flat_hg.vertex_offsets, queue_);
+            flat_hg.vertex_offsets = nullptr;
+        }
+        if (flat_hg.edge_sizes) {
+            sycl::free(flat_hg.edge_sizes, queue_);
+            flat_hg.edge_sizes = nullptr;
+        }
+    }
     
     /**
      * @brief Run one iteration of label propagation on GPU
      */
-    bool run_iteration_sycl(const FlatHypergraph& flat_hg,
-                           sycl::buffer<Hypergraph::Label, 1>& current_labels,
-                           sycl::buffer<Hypergraph::Label, 1>& new_labels,
-                           double tolerance);
+    bool run_iteration_sycl(const DeviceFlatHypergraph& flat_hg,
+                            const Hypergraph::Label* current_labels,
+                            Hypergraph::Label* new_labels,
+                            std::size_t* changes,
+                            double tolerance);
 };
-
-#endif // LABEL_PROPAGATION_SYCL_HPP
