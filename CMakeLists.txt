@@ -51,43 +51,39 @@ endif()
 
 # Build SYCL implementation
 if(BUILD_SYCL)
-    # Try to find SYCL compiler
-    find_program(SYCL_COMPILER 
-        NAMES icpx dpcpp sycl++
-        DOC "SYCL compiler executable"
-    )
-    
-    if(SYCL_COMPILER)
-        message(STATUS "Building SYCL implementation with ${SYCL_COMPILER}")
-        
+    set(SYCL_TARGETS "spir64" CACHE STRING "SYCL targets to build for (semicolon-separated list)")
+
+    include(CheckCXXCompilerFlag)
+    check_cxx_compiler_flag("-fsycl" CMAKE_CXX_COMPILER_SUPPORTS_FSYCL)
+
+    if(CMAKE_CXX_COMPILER_SUPPORTS_FSYCL)
+        set(BUILD_SYCL ON CACHE BOOL "Build SYCL implementation" FORCE)
+        message(STATUS "Building SYCL implementation with ${CMAKE_CXX_COMPILER}")
+
         add_executable(label_propagation_sycl
             src/sycl/main_sycl.cpp
             src/sycl/label_propagation_sycl.cpp
         )
-        
+
         target_link_libraries(label_propagation_sycl 
             PRIVATE 
             hypergraph_common
         )
-        
+
         target_include_directories(label_propagation_sycl PRIVATE src/sycl)
-        
-        # Set SYCL compiler and flags
-        set_target_properties(label_propagation_sycl PROPERTIES
-            CXX_COMPILER ${SYCL_COMPILER}
-        )
-        
+
         target_compile_options(label_propagation_sycl PRIVATE 
             -fsycl
-            -fsycl-targets=spir64,nvptx64-nvidia-cuda
+            -fsycl-targets=${SYCL_TARGETS}
         )
-        
+
         target_link_options(label_propagation_sycl PRIVATE 
             -fsycl
-            -fsycl-targets=spir64,nvptx64-nvidia-cuda
+            -fsycl-targets=${SYCL_TARGETS}
         )
     else()
-        message(WARNING "SYCL compiler not found, skipping SYCL implementation")
+        message(WARNING "Selected compiler (${CMAKE_CXX_COMPILER}) does not support -fsycl. Skipping SYCL implementation.")
+        set(BUILD_SYCL OFF CACHE BOOL "Build SYCL implementation" FORCE)
     endif()
 endif()
 
