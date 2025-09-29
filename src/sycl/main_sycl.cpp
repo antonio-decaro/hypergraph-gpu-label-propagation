@@ -16,7 +16,7 @@ std::unique_ptr<Hypergraph> generate_test_hypergraph(std::size_t num_vertices,
     std::mt19937 gen(rd());
     std::uniform_int_distribution<std::size_t> vertex_dist(0, num_vertices - 1);
     std::uniform_int_distribution<std::size_t> size_dist(2, max_edge_size);
-    std::uniform_int_distribution<Hypergraph::Label> label_dist(0, num_vertices / 10);
+    std::uniform_int_distribution<Hypergraph::Label> label_dist(0, num_vertices / 100);
 
     // Generate random hyperedges
     for (std::size_t e = 0; e < num_edges; ++e) {
@@ -52,18 +52,15 @@ int main(int argc, char* argv[]) {
         std::size_t num_vertices = 1000;
         std::size_t num_edges = 5000;
         int max_iterations = 100;
-        std::string device_type = "auto";
 
         if (argc >= 2) num_vertices = std::stoull(argv[1]);
         if (argc >= 3) num_edges = std::stoull(argv[2]);
         if (argc >= 4) max_iterations = std::stoi(argv[3]);
-        if (argc >= 5) device_type = argv[4];
 
         std::cout << "Parameters:\n";
         std::cout << "  Vertices: " << num_vertices << "\n";
         std::cout << "  Edges: " << num_edges << "\n";
         std::cout << "  Max iterations: " << max_iterations << "\n";
-        std::cout << "  Device: " << device_type << "\n\n";
 
         // Generate test hypergraph
         std::cout << "Generating test hypergraph...\n";
@@ -73,16 +70,10 @@ int main(int argc, char* argv[]) {
         std::cout << "  Vertices: " << hypergraph->get_num_vertices() << "\n";
         std::cout << "  Hyperedges: " << hypergraph->get_num_edges() << "\n";
 
-        // Create device selector
-        std::unique_ptr<sycl::device_selector> selector;
-        if (device_type == "gpu") {
-            selector = std::make_unique<sycl::gpu_selector>();
-        } else if (device_type == "cpu") {
-            selector = std::make_unique<sycl::cpu_selector>();
-        }
+        sycl::queue queue {sycl::gpu_selector_v};
 
         // Run SYCL label propagation
-        LabelPropagationSYCL algorithm(selector.get());
+        LabelPropagationSYCL algorithm(queue);
         
         auto start_time = std::chrono::high_resolution_clock::now();
         int iterations = algorithm.run(*hypergraph, max_iterations);
