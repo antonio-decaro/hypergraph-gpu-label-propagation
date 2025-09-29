@@ -1,5 +1,4 @@
-#ifndef LABEL_PROPAGATION_SYCL_HPP
-#define LABEL_PROPAGATION_SYCL_HPP
+#pragma once
 
 #include "hypergraph.hpp"
 #include <sycl/sycl.hpp>
@@ -12,9 +11,9 @@ class LabelPropagationSYCL : public LabelPropagationAlgorithm {
 public:
     /**
      * @brief Constructor
-     * @param device_selector SYCL device selector (default: GPU, fallback to CPU)
+     * @param queue SYCL queue for device execution
      */
-    explicit LabelPropagationSYCL(sycl::device_selector* device_selector = nullptr);
+    explicit LabelPropagationSYCL(sycl::queue& queue);
 
     /**
      * @brief Destructor

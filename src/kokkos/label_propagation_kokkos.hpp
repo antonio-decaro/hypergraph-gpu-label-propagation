@@ -1,5 +1,4 @@
-#ifndef LABEL_PROPAGATION_KOKKOS_HPP
-#define LABEL_PROPAGATION_KOKKOS_HPP
+#pragma once
 
 #include "hypergraph.hpp"
 #include <Kokkos_Core.hpp>
@@ -69,5 +68,3 @@ private:
                              const LabelView& new_labels,
                              double tolerance);
 };
-
-#endif // LABEL_PROPAGATION_KOKKOS_HPP

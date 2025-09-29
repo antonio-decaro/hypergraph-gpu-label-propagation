@@ -1,5 +1,4 @@
-#ifndef LABEL_PROPAGATION_OPENMP_HPP
-#define LABEL_PROPAGATION_OPENMP_HPP
+#pragma once
 
 #include "hypergraph.hpp"
 #include <omp.h>
@@ -41,5 +40,3 @@ private:
                           const std::vector<Hypergraph::Label>& new_labels,
                           double tolerance);
 };
-
-#endif // LABEL_PROPAGATION_OPENMP_HPP
