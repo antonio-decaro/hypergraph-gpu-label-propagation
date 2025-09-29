@@ -53,3 +53,34 @@ void Hypergraph::set_labels(const std::vector<Label>& labels) {
     }
     labels_ = labels;
 }
+
+Hypergraph::FlatHypergraph Hypergraph::flatten() const {
+    FlatHypergraph flat_hg;
+    flat_hg.num_vertices = get_num_vertices();
+    flat_hg.num_edges = get_num_edges();
+
+    // Flatten hyperedges
+    flat_hg.edge_offsets.push_back(0);
+    for (std::size_t e = 0; e < flat_hg.num_edges; ++e) {
+        const auto& vertices = get_hyperedge(e);
+        flat_hg.edge_sizes.push_back(vertices.size());
+        
+        for (auto v : vertices) {
+            flat_hg.edge_vertices.push_back(v);
+        }
+        flat_hg.edge_offsets.push_back(flat_hg.edge_vertices.size());
+    }
+    
+    // Flatten vertex incident edges
+    flat_hg.vertex_offsets.push_back(0);
+    for (std::size_t v = 0; v < flat_hg.num_vertices; ++v) {
+        const auto& edges = get_incident_edges(v);
+
+        for (auto e : edges) {
+            flat_hg.vertex_edges.push_back(e);
+        }
+        flat_hg.vertex_offsets.push_back(flat_hg.vertex_edges.size());
+    }
+    
+    return flat_hg;
+}
