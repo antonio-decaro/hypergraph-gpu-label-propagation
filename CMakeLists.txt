@@ -127,6 +127,17 @@ message(STATUS "  SYCL:   ${BUILD_SYCL}")
 message(STATUS "  Kokkos: ${BUILD_KOKKOS}")
 message(STATUS "")
 
+# Add example program
+add_executable(example example.cpp)
+target_link_libraries(example PRIVATE hypergraph_common)
+
+if(TARGET label_propagation_openmp)
+    target_compile_definitions(example PRIVATE BUILD_OPENMP)
+    target_sources(example PRIVATE src/openmp/label_propagation_openmp.cpp)
+    target_link_libraries(example PRIVATE OpenMP::OpenMP_CXX)
+    target_include_directories(example PRIVATE src/openmp)
+endif()
+
 # Add custom target to build all available implementations
 add_custom_target(all_implementations)
 
@@ -159,6 +170,7 @@ if(TARGET label_propagation_kokkos)
     install(TARGETS label_propagation_kokkos DESTINATION bin)
 endif()
 
+install(TARGETS example DESTINATION bin)
 install(FILES include/hypergraph.hpp DESTINATION include)
 
 # Add usage information

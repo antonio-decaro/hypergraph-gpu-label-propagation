@@ -3,6 +3,7 @@
 
 #include "hypergraph.hpp"
 #include <sycl/sycl.hpp>
+#include <string>
 
 /**
  * @brief SYCL implementation of hypergraph label propagation

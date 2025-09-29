@@ -1,2 +1,0 @@
-/usr/bin/ar qc libhypergraph_common.a CMakeFiles/hypergraph_common.dir/src/common/hypergraph.cpp.o
-/usr/bin/ranlib libhypergraph_common.a

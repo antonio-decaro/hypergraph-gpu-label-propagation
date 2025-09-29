@@ -3,6 +3,7 @@
 
 #include "hypergraph.hpp"
 #include <Kokkos_Core.hpp>
+#include <string>
 
 /**
  * @brief Kokkos implementation of hypergraph label propagation
