@@ -87,7 +87,7 @@ make label_propagation_openmp
 ```bash
 # Ensure SYCL compiler is in PATH
 mkdir build && cd build
-cmake -DBUILD_SYCL=ON ..
+cmake -DBUILD_SYCL=ON -DSYCL_TARGETS="spir64,nvptx64-nvidia-cuda" ..
 make label_propagation_sycl
 ```
 
