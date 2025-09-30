@@ -119,3 +119,65 @@ public:
      */
     virtual std::string get_name() const = 0;
 };
+
+/**
+ * @brief Random hypergraph generators (common library)
+ */
+namespace hypergraph_generators {
+
+/**
+ * @brief Generate a random hypergraph with uniformly distributed edge sizes.
+ * @param num_vertices Number of vertices
+ * @param num_edges Number of hyperedges
+ * @param min_edge_size Minimum edge cardinality (>=2)
+ * @param max_edge_size Maximum edge cardinality (>=min_edge_size)
+ * @param seed RNG seed (optional; if 0 uses nondeterministic seed)
+ */
+std::unique_ptr<Hypergraph> generate_uniform(std::size_t num_vertices,
+                                             std::size_t num_edges,
+                                             std::size_t min_edge_size = 2,
+                                             std::size_t max_edge_size = 5,
+                                             unsigned int seed = 0);
+
+/**
+ * @brief Generate a random hypergraph where all edges have the same size.
+ * @param num_vertices Number of vertices
+ * @param num_edges Number of hyperedges
+ * @param edge_size Fixed edge cardinality (>=2)
+ * @param seed RNG seed (optional; if 0 uses nondeterministic seed)
+ */
+std::unique_ptr<Hypergraph> generate_fixed_edge_size(std::size_t num_vertices,
+                                                     std::size_t num_edges,
+                                                     std::size_t edge_size,
+                                                     unsigned int seed = 0);
+
+/**
+ * @brief Generate a planted-partition (community) hypergraph.
+ *        Edges are intra-community with probability p_intra, otherwise inter-community.
+ * @param num_vertices Number of vertices
+ * @param num_edges Number of hyperedges
+ * @param num_communities Number of communities (>=1)
+ * @param p_intra Probability an edge is intra-community [0,1]
+ * @param min_edge_size Minimum edge size
+ * @param max_edge_size Maximum edge size
+ * @param seed RNG seed (optional; if 0 uses nondeterministic seed)
+ */
+std::unique_ptr<Hypergraph> generate_planted_partition(std::size_t num_vertices,
+                                                       std::size_t num_edges,
+                                                       std::size_t num_communities,
+                                                       double p_intra = 0.8,
+                                                       std::size_t min_edge_size = 2,
+                                                       std::size_t max_edge_size = 5,
+                                                       unsigned int seed = 0);
+
+/**
+ * @brief Generate random labels for vertices in range [0, num_classes).
+ * @param num_vertices Number of vertices
+ * @param num_classes Number of distinct labels/classes (>=1)
+ * @param seed RNG seed (optional; if 0 uses nondeterministic seed)
+ */
+std::vector<Hypergraph::Label> generate_random_labels(std::size_t num_vertices,
+                                                      std::size_t num_classes,
+                                                      unsigned int seed = 0);
+
+} // namespace HypergraphGenerators
