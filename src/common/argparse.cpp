@@ -133,7 +133,7 @@ Options parse_args(int argc, char** argv) {
 
     // Group: Labels
     opts.add_options("Labels")
-        ("label-classes", "Generate random labels in [0,C) (0=skip)", cxxopts::value<std::size_t>(out.label_classes))
+        ("label-classes", "Generate random labels in [0,C) (0=skip)", cxxopts::value<std::size_t>(out.label_classes)->default_value("10"))
         ("label-seed",    "Label RNG seed (0=nondet)", cxxopts::value<unsigned int>(out.label_seed))
     ;
 
@@ -342,11 +342,9 @@ void print_cli_summary(const Options& opts) {
         } else {
             std::cout << "\n";
         }
-        if (opts.label_classes > 0) {
-            std::cout << "  Labels: classes=" << opts.label_classes;
-            if (opts.label_seed) std::cout << ", label-seed=" << opts.label_seed;
-            std::cout << "\n";
-        }
+        std::cout << "  Labels: classes=" << opts.label_classes;
+        if (opts.label_seed) std::cout << ", label-seed=" << opts.label_seed;
+        std::cout << std::endl;
     }
     if (!opts.save_file.empty()) {
         std::cout << "  Output: " << opts.save_file << "\n";
