@@ -1,195 +1,122 @@
 # Hypergraph GPU Label Propagation
 
-Implementation of the Label Propagation Algorithm for Hypergraphs on GPUs using different heterogeneous programming models: **OpenMP**, **SYCL**, and **Kokkos**.
+Label Propagation for hypergraphs across multiple backends: OpenMP (CPU and offload), SYCL, and Kokkos. A unified CLI configures generators, algorithm limits, labels, and binary I/O.
 
 ## Overview
 
-This project implements the label propagation algorithm for hypergraphs using three different parallel programming models:
+- Implementations: OpenMP, SYCL, and Kokkos.
+- Unified CLI via cxxopts for all backends.
+- Built‑in random hypergraph generators: uniform, fixed (a.k.a. d‑uniform ER), planted partition, and hSBM.
+- Binary save/load for reproducible experiments.
 
-- **OpenMP**: CPU-based parallel implementation using OpenMP threading
-- **SYCL**: GPU/accelerator implementation using SYCL (Intel DPC++, hipSYCL, etc.)
-- **Kokkos**: Performance-portable implementation supporting multiple backends (CUDA, HIP, OpenMP, etc.)
-
-## Project Structure
+## Project Layout
 
 ```
-├── include/
-│   └── hypergraph.hpp          # Common hypergraph data structures and interfaces
-├── src/
-│   ├── common/
-│   │   └── hypergraph.cpp      # Common hypergraph implementation
-│   ├── openmp/
-│   │   ├── label_propagation_openmp.hpp
-│   │   ├── label_propagation_openmp.cpp
-│   │   ├── main_openmp.cpp
-│   │   └── CMakeLists.txt
-│   ├── sycl/
-│   │   ├── label_propagation_sycl.hpp
-│   │   ├── label_propagation_sycl.cpp
-│   │   ├── main_sycl.cpp
-│   │   └── CMakeLists.txt
-│   └── kokkos/
-│       ├── label_propagation_kokkos.hpp
-│       ├── label_propagation_kokkos.cpp
-│       ├── main_kokkos.cpp
-│       └── CMakeLists.txt
-└── CMakeLists.txt              # Main build configuration
+include/                # Public headers (Hypergraph, generators, CLI options)
+src/common/             # Shared hypergraph + generators + CLI parsing
+src/openmp/             # OpenMP implementation + entry point
+src/sycl/               # SYCL implementation + entry point
+src/kokkos/             # Kokkos implementation + entry point
 ```
 
-## Requirements
+## Build
 
-### General Requirements
-- CMake 3.16 or later
-- C++17 compatible compiler
+Prereqs
+- CMake ≥ 3.16
+- C++17 compiler
+- Optional: SYCL toolchain; Kokkos installation
 
-### OpenMP Implementation
-- OpenMP-capable compiler (GCC, Clang, Intel, etc.)
-
-### SYCL Implementation
-- SYCL-compatible compiler:
-  - Intel DPC++ (oneAPI toolkit)
-  - hipSYCL
-  - ComputeCpp
-  - triSYCL (CPU-only)
-
-### Kokkos Implementation
-- Kokkos library installed (3.0 or later)
-- Compatible backend (CUDA, HIP, OpenMP, etc.)
-
-## Building
-
-### Quick Start (OpenMP only)
-
+Configure + build (OpenMP)
 ```bash
 mkdir build && cd build
 cmake -DBUILD_OPENMP=ON ..
-make label_propagation_openmp
+cmake --build . -j
 ```
 
-### Building All Available Implementations
+Other backends
+- SYCL: `cmake -DBUILD_SYCL=ON -DSYCL_TARGETS="spir64,nvptx64-nvidia-cuda" .. && cmake --build . -j`
+- Kokkos: `cmake -DBUILD_KOKKOS=ON -DKokkos_ROOT=/path/to/kokkos .. && cmake --build . -j`
 
+Install
 ```bash
-mkdir build && cd build
-cmake -DBUILD_OPENMP=ON -DBUILD_SYCL=ON -DBUILD_KOKKOS=ON ..
-make all_implementations
+cmake --install . --prefix ./install
 ```
 
-### Building Specific Implementations
+## Unified CLI
 
-#### OpenMP Implementation
+General
+- `--vertices, -v` number of vertices (default 1000)
+- `--edges, -e` number of hyperedges (default 5000)
+- `--iterations, -i` max iterations (default 100)
+- `--tolerance, -t` convergence tolerance (default 1e-6)
+- `--threads, -p` OpenMP threads (0=auto)
+- `--seed` RNG seed for graph (0=nondeterministic)
+
+Labels
+- `--label-classes` number of classes to assign randomly (0=skip)
+- `--label-seed` RNG seed for labels (0=nondeterministic)
+
+I/O
+- `--load <file>` load a hypergraph from binary
+- `--save <file>` save the generated/loaded hypergraph to binary
+
+Generator selection
+- `--generator {uniform|fixed|planted|hsbm}` or shortcuts `--uniform`, `--fixed`, `--planted`, `--hsbm`
+
+Generator parameters
+- uniform: `--min-edge-size`, `--max-edge-size`
+- fixed: `--edge-size` (d‑uniform ER G^(d)(n,m) is equivalent to fixed with edge‑size=d)
+- planted: `--communities`, `--p-intra`, `--min-edge-size`, `--max-edge-size`
+- hsbm: `--communities`, `--p-intra`, `--p-inter`, `--min-edge-size`, `--max-edge-size`
+
+Help/Version
+- `--help`, `--version`
+
+Examples
 ```bash
-mkdir build && cd build
-cmake -DBUILD_OPENMP=ON ..
-make label_propagation_openmp
+# OpenMP: uniform generator
+./label_propagation_openmp \
+  --uniform -v 1000 -e 5000 --min-edge-size 2 --max-edge-size 6 \
+  --iterations 100 --tolerance 1e-6 --threads 0 --save data/uniform.bin
+
+# Fixed (aka d-uniform ER with d=4)
+./label_propagation_openmp --fixed -v 2000 -e 10000 --edge-size 4
+
+# Planted partition
+./label_propagation_openmp --planted -v 4000 -e 20000 \
+  --communities 8 --p-intra 0.85 --min-edge-size 2 --max-edge-size 5
+
+# hSBM with explicit inter probability
+./label_propagation_openmp --hsbm -v 5000 -e 20000 \
+  --communities 10 --p-intra 0.9 --p-inter 0.05 --min-edge-size 3 --max-edge-size 6
+
+# Load from file and re-label
+./label_propagation_openmp --load data/uniform.bin --label-classes 6 --label-seed 42
 ```
 
-#### SYCL Implementation
-```bash
-# Ensure SYCL compiler is in PATH
-mkdir build && cd build
-cmake -DBUILD_SYCL=ON -DSYCL_TARGETS="spir64,nvptx64-nvidia-cuda" ..
-make label_propagation_sycl
-```
+## Generators (brief)
+- uniform: Edge sizes sampled uniformly in `[min-edge-size, max-edge-size]`; vertices chosen uniformly without replacement.
+- fixed: All edges have exactly `edge-size` vertices. Equivalent to d‑uniform ER when you view edges as uniform d‑subsets.
+- planted: Partition vertices into `communities`. For each edge, sample size in range; with probability `p-intra`, draw mostly from a single community (fill from outside if needed); otherwise mix across communities.
+- hSBM: Rejection sampling. For a random k‑set, accept with `p-intra` if all vertices are in the same community; otherwise with `p-inter`. Edge size k sampled in range.
 
-#### Kokkos Implementation
-```bash
-# Ensure Kokkos is installed and findable by CMake
-mkdir build && cd build
-cmake -DBUILD_KOKKOS=ON -DKokkos_ROOT=/path/to/kokkos ..
-make label_propagation_kokkos
-```
+## Binary format
+Saved via `--save` and loaded via `--load` (little‑endian):
+- uint32 magic: `HGR1`
+- uint32 version: `1`
+- uint64 `num_vertices`
+- uint64 `num_edges`
+- For each edge: uint64 `edge_size`, followed by `edge_size` x uint64 vertex ids
+- uint8 `has_labels`
+- If `has_labels`: `num_vertices` x int32 labels
 
-### CMake Configuration Options
+## Algorithm (Label Propagation)
+- Per iteration, each vertex adopts the label maximizing the weighted count from incident hyperedges (weight 1/edge_size per neighbor occurrence).
+- Stop when the fraction of label changes drops below tolerance or after `--iterations`.
 
-- `BUILD_OPENMP` (default: ON): Build OpenMP implementation
-- `BUILD_SYCL` (default: OFF): Build SYCL implementation
-- `BUILD_KOKKOS` (default: OFF): Build Kokkos implementation
-
-## Installation
-
-```bash
-make install
-```
-
-By default, binaries are installed to `build/install/bin/`. You can change the installation prefix:
-
-```bash
-cmake -DCMAKE_INSTALL_PREFIX=/usr/local ..
-```
-
-## Usage
-
-All implementations accept the same command-line arguments:
-
-```bash
-./label_propagation_<implementation> [num_vertices] [num_edges] [max_iterations] [implementation_specific_args]
-```
-
-### Examples
-
-```bash
-# OpenMP with 1000 vertices, 5000 edges, max 100 iterations, 4 threads
-./label_propagation_openmp 1000 5000 100 4
-
-# SYCL with 1000 vertices, 5000 edges, max 100 iterations, GPU device
-./label_propagation_sycl 1000 5000 100 gpu
-
-# Kokkos with 1000 vertices, 5000 edges, max 100 iterations
-./label_propagation_kokkos 1000 5000 100
-```
-
-## Algorithm Details
-
-The label propagation algorithm for hypergraphs works as follows:
-
-1. Initialize each vertex with a random label
-2. In each iteration, update each vertex's label to the most frequent label among its neighbors
-3. For hypergraphs, neighbors are defined through hyperedge connectivity
-4. Weight contributions by edge size (1/edge_size)
-5. Continue until convergence or maximum iterations reached
-
-## Performance Considerations
-
-- **OpenMP**: Best for CPU-bound workloads with good thread scalability
-- **SYCL**: Optimized for GPU acceleration with automatic memory management
-- **Kokkos**: Performance-portable across different architectures
-
-## Dependencies Installation
-
-### Installing SYCL (Intel oneAPI)
-
-```bash
-# Ubuntu/Debian
-wget -O- https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB | gpg --dearmor | sudo tee /usr/share/keyrings/oneapi-archive-keyring.gpg > /dev/null
-echo "deb [signed-by=/usr/share/keyrings/oneapi-archive-keyring.gpg] https://apt.repos.intel.com/oneapi all main" | sudo tee /etc/apt/sources.list.d/oneAPI.list
-sudo apt update
-sudo apt install intel-oneapi-dpcpp-cpp
-```
-
-### Installing Kokkos
-
-```bash
-git clone https://github.com/kokkos/kokkos.git
-cd kokkos
-mkdir build && cd build
-cmake -DCMAKE_INSTALL_PREFIX=/usr/local -DKokkos_ENABLE_OPENMP=ON -DKokkos_ENABLE_CUDA=ON ..
-make install
-```
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Add your implementation or improvements
-4. Test thoroughly
-5. Submit a pull request
+## Notes
+- OpenMP target offload path uses a flattened hypergraph representation for device access.
+- `benchmark.sh` contains simple driver samples for quick runs.
 
 ## License
-
-This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
-
-## Acknowledgments
-
-- OpenMP Architecture Review Board for the OpenMP specification
-- The Khronos Group for the SYCL specification
-- Sandia National Laboratories for the Kokkos library
+Apache 2.0. See LICENSE.
