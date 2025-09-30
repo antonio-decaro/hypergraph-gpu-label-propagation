@@ -18,10 +18,27 @@ add_library(hypergraph_common STATIC
 
 target_include_directories(hypergraph_common PUBLIC include)
 
+# CLI common (arg parsing + hypergraph construction)
+add_library(cli_common STATIC
+    src/common/argparse.cpp
+)
+target_include_directories(cli_common PUBLIC include)
+if(DEFINED CXXOPTS_IMPORTED_INCLUDE)
+    target_include_directories(cli_common PRIVATE ${CXXOPTS_IMPORTED_INCLUDE})
+else()
+    message(WARNING "cxxopts not available. Set CXXOPTS_INCLUDE_DIR or enable DOWNLOAD_CXXOPTS.")
+endif()
+
 # Find and configure different programming models
 set(BUILD_OPENMP ON CACHE BOOL "Build OpenMP implementation")
 set(BUILD_SYCL OFF CACHE BOOL "Build SYCL implementation")  
 set(BUILD_KOKKOS OFF CACHE BOOL "Build Kokkos implementation")
+
+# OpenMP target offload configuration (module)
+include(cmake/OpenMPOffload.cmake)
+
+# Resolve cxxopts via bundled module
+include(cmake/FetchCXXOPTS.cmake)
 
 # Build OpenMP implementation
 if(BUILD_OPENMP)
@@ -37,6 +54,7 @@ if(BUILD_OPENMP)
         target_link_libraries(label_propagation_openmp 
             PRIVATE 
             hypergraph_common
+            cli_common
             OpenMP::OpenMP_CXX
         )
         
@@ -44,6 +62,9 @@ if(BUILD_OPENMP)
         
         # Set OpenMP compiler flags
         target_compile_options(label_propagation_openmp PRIVATE ${OpenMP_CXX_FLAGS})
+
+        # Configure OpenMP target offload via helper
+        omp_configure_offload(label_propagation_openmp)
     else()
         message(WARNING "OpenMP not found, skipping OpenMP implementation")
     endif()
