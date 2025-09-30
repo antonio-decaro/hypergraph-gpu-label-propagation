@@ -4,44 +4,6 @@
 #include <chrono>
 #include <set>
 
-/**
- * @brief Generate a random hypergraph for testing
- */
-std::unique_ptr<Hypergraph> generate_test_hypergraph(std::size_t num_vertices, 
-                                                     std::size_t num_edges,
-                                                     std::size_t max_edge_size = 5) {
-    auto hypergraph = std::make_unique<Hypergraph>(num_vertices);
-    
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<std::size_t> vertex_dist(0, num_vertices - 1);
-    std::uniform_int_distribution<std::size_t> size_dist(2, max_edge_size);
-    std::uniform_int_distribution<Hypergraph::Label> label_dist(0, num_vertices / 10);
-
-    // Generate random hyperedges
-    for (std::size_t e = 0; e < num_edges; ++e) {
-        std::size_t edge_size = size_dist(gen);
-        std::vector<Hypergraph::VertexId> vertices;
-        
-        // Generate unique vertices for this edge
-        std::set<Hypergraph::VertexId> vertex_set;
-        while (vertex_set.size() < edge_size) {
-            vertex_set.insert(vertex_dist(gen));
-        }
-        
-        vertices.assign(vertex_set.begin(), vertex_set.end());
-        hypergraph->add_hyperedge(vertices);
-    }
-
-    // Generate random initial labels
-    std::vector<Hypergraph::Label> labels(num_vertices);
-    for (std::size_t v = 0; v < num_vertices; ++v) {
-        labels[v] = label_dist(gen);
-    }
-    hypergraph->set_labels(labels);
-
-    return hypergraph;
-}
 
 int main(int argc, char* argv[]) {
     std::cout << "Hypergraph Label Propagation - SYCL Implementation\n";
