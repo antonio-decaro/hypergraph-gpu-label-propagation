@@ -1,4 +1,5 @@
 #include "label_propagation_sycl.hpp"
+#include "argparse.hpp"
 #include <iostream>
 #include <random>
 #include <chrono>
@@ -14,6 +15,7 @@ int main(int argc, char* argv[]) {
     if (opts.iterations == 0 && opts.help) {
         return 0; // help printed
     }
+    CLI::print_cli_summary(opts);
 
 
     try {
@@ -36,7 +38,7 @@ int main(int argc, char* argv[]) {
         LabelPropagationSYCL algorithm(queue);
         
         auto start_time = std::chrono::high_resolution_clock::now();
-        int iterations = algorithm.run(*hypergraph, max_iterations);
+        int iterations = algorithm.run(*hypergraph, opts.iterations);
         auto end_time = std::chrono::high_resolution_clock::now();
         
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
