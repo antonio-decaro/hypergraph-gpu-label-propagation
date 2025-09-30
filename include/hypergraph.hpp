@@ -88,6 +88,23 @@ public:
      */
     FlatHypergraph flatten() const;
 
+    // ---------------------------
+    // Binary serialization
+    // ---------------------------
+    // Format v1 (little-endian):
+    //   uint32 magic = 'HGR1'
+    //   uint32 version = 1
+    //   uint64 num_vertices
+    //   uint64 num_edges
+    //   repeat num_edges times:
+    //       uint64 edge_size
+    //       uint64 vertices[edge_size]
+    //   uint8  has_labels (0 or 1)
+    //   if has_labels:
+    //       int32 labels[num_vertices]
+    void save_to_file(const std::string& path) const;
+    static std::unique_ptr<Hypergraph> load_from_file(const std::string& path);
+
 private:
 
     std::size_t num_vertices_;

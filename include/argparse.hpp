@@ -34,6 +34,10 @@ struct Options {
     std::size_t label_classes = 0; // 0 = leave defaults
     unsigned int label_seed = 0;   // 0 = nondeterministic
 
+    // IO
+    std::string load_file;  // if non-empty, load hypergraph from this binary file
+    std::string save_file;  // if non-empty, save generated/loaded hypergraph to this binary file
+
     // Misc
     bool help = false;
 };

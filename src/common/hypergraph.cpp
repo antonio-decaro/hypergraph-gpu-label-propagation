@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <random>
 #include <set>
+#include <fstream>
+#include <cstdint>
 
 Hypergraph::Hypergraph(std::size_t num_vertices) 
     : num_vertices_(num_vertices)
@@ -262,3 +264,111 @@ std::vector<Hypergraph::Label> generate_random_labels(std::size_t num_vertices,
 }
 
 } // namespace HypergraphGenerators
+
+// ---------------------------
+// Serialization (binary)
+// ---------------------------
+
+namespace {
+// 'HGR1' in little-endian for easy inspection
+constexpr std::uint32_t HGR_ASCII = 0x31475248; // 'H''G''R''1'
+}
+
+void Hypergraph::save_to_file(const std::string& path) const {
+    std::ofstream os(path, std::ios::binary);
+    if (!os) {
+        throw std::runtime_error("Failed to open file for writing: " + path);
+    }
+
+    const std::uint32_t magic = HGR_ASCII; // 'HGR1'
+    const std::uint32_t version = 1u;
+    const std::uint64_t nv = static_cast<std::uint64_t>(num_vertices_);
+    const std::uint64_t ne = static_cast<std::uint64_t>(get_num_edges());
+
+    os.write(reinterpret_cast<const char*>(&magic), sizeof(magic));
+    os.write(reinterpret_cast<const char*>(&version), sizeof(version));
+    os.write(reinterpret_cast<const char*>(&nv), sizeof(nv));
+    os.write(reinterpret_cast<const char*>(&ne), sizeof(ne));
+
+    for (std::size_t e = 0; e < hyperedges_.size(); ++e) {
+        const auto& verts = hyperedges_[e];
+        const std::uint64_t sz = static_cast<std::uint64_t>(verts.size());
+        os.write(reinterpret_cast<const char*>(&sz), sizeof(sz));
+        for (auto v : verts) {
+            const std::uint64_t vv = static_cast<std::uint64_t>(v);
+            os.write(reinterpret_cast<const char*>(&vv), sizeof(vv));
+        }
+    }
+
+    // Always write labels availability flag and labels
+    const std::uint8_t has_labels = 1u;
+    os.write(reinterpret_cast<const char*>(&has_labels), sizeof(has_labels));
+    for (std::size_t v = 0; v < num_vertices_; ++v) {
+        const std::int32_t lab = static_cast<std::int32_t>(labels_[v]);
+        os.write(reinterpret_cast<const char*>(&lab), sizeof(lab));
+    }
+
+    if (!os) {
+        throw std::runtime_error("Failed while writing file: " + path);
+    }
+}
+
+std::unique_ptr<Hypergraph> Hypergraph::load_from_file(const std::string& path) {
+    std::ifstream is(path, std::ios::binary);
+    if (!is) {
+        throw std::runtime_error("Failed to open file for reading: " + path);
+    }
+
+    std::uint32_t magic = 0, version = 0;
+    is.read(reinterpret_cast<char*>(&magic), sizeof(magic));
+    is.read(reinterpret_cast<char*>(&version), sizeof(version));
+    if (!is || magic != HGR_ASCII || version != 1u) {
+        throw std::runtime_error("Invalid hypergraph file (bad magic/version): " + path);
+    }
+
+    std::uint64_t nv = 0, ne = 0;
+    is.read(reinterpret_cast<char*>(&nv), sizeof(nv));
+    is.read(reinterpret_cast<char*>(&ne), sizeof(ne));
+    if (!is || nv == 0) {
+        throw std::runtime_error("Invalid hypergraph file (bad header): " + path);
+    }
+
+    auto hg = std::make_unique<Hypergraph>(static_cast<std::size_t>(nv));
+
+    for (std::uint64_t e = 0; e < ne; ++e) {
+        std::uint64_t sz = 0;
+        is.read(reinterpret_cast<char*>(&sz), sizeof(sz));
+        if (!is || sz == 0) {
+            throw std::runtime_error("Invalid hypergraph file (bad edge size): " + path);
+        }
+        std::vector<Hypergraph::VertexId> verts;
+        verts.reserve(static_cast<std::size_t>(sz));
+        for (std::uint64_t i = 0; i < sz; ++i) {
+            std::uint64_t vv = 0;
+            is.read(reinterpret_cast<char*>(&vv), sizeof(vv));
+            if (!is) {
+                throw std::runtime_error("Invalid hypergraph file (truncated vertices): " + path);
+            }
+            verts.push_back(static_cast<Hypergraph::VertexId>(vv));
+        }
+        hg->add_hyperedge(verts);
+    }
+
+    // Attempt to read labels flag (optional for forward compatibility)
+    std::uint8_t has_labels = 0u;
+    is.read(reinterpret_cast<char*>(&has_labels), sizeof(has_labels));
+    if (is && has_labels) {
+        std::vector<Label> labels(static_cast<std::size_t>(nv), 0);
+        for (std::size_t v = 0; v < static_cast<std::size_t>(nv); ++v) {
+            std::int32_t lab = 0;
+            is.read(reinterpret_cast<char*>(&lab), sizeof(lab));
+            if (!is) {
+                throw std::runtime_error("Invalid hypergraph file (truncated labels): " + path);
+            }
+            labels[v] = static_cast<Label>(lab);
+        }
+        hg->set_labels(labels);
+    }
+
+    return hg;
+}

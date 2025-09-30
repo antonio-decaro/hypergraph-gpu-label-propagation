@@ -47,6 +47,12 @@ Options parse_args(int argc, char** argv) {
         ("label-seed",    "Label RNG seed (0=nondet)", cxxopts::value<unsigned int>(out.label_seed))
     ;
 
+    // Group: IO
+    opts.add_options("IO")
+        ("load", "Load hypergraph from binary file", cxxopts::value<std::string>(out.load_file))
+        ("save", "Save hypergraph to binary file",   cxxopts::value<std::string>(out.save_file))
+    ;
+
     // Group: Misc
     bool show_version = false;
     opts.add_options("Misc")
@@ -119,7 +125,17 @@ Options parse_args(int argc, char** argv) {
         warned = true;
     };
 
-    if (out.generator == "fixed") {
+    if (!out.load_file.empty()) {
+        // Loading overrides generator-specific knobs; warn when both are supplied
+        if (result.count("generator") || flag_uniform || flag_fixed || flag_planted) {
+            warn("--load specified: generator selection and parameters are ignored.");
+        }
+        if (result.count("min-edge-size")) warn("--min-edge-size is ignored when loading from file.");
+        if (result.count("max-edge-size")) warn("--max-edge-size is ignored when loading from file.");
+        if (result.count("edge-size")) warn("--edge-size is ignored when loading from file.");
+        if (result.count("communities")) warn("--communities is ignored when loading from file.");
+        if (result.count("p-intra")) warn("--p-intra is ignored when loading from file.");
+    } else if (out.generator == "fixed") {
         if (result.count("min-edge-size")) warn("--min-edge-size is ignored with --generator=fixed.");
         if (result.count("max-edge-size")) warn("--max-edge-size is ignored with --generator=fixed.");
         if (!result.count("edge-size")) {
@@ -151,7 +167,9 @@ Options parse_args(int argc, char** argv) {
     }
 
     // Generator-specific validation hints
-    if (out.generator == "fixed") {
+    if (!out.load_file.empty()) {
+        // No further generator validation needed when loading
+    } else if (out.generator == "fixed") {
         if (out.edge_size < 2) {
             std::cerr << "Error: --edge-size must be >= 2 for fixed generator.\n";
             print_help_with_generators();
@@ -221,24 +239,33 @@ std::unique_ptr<Hypergraph> make_hypergraph(const Options& opts) {
     using namespace hypergraph_generators;
     std::unique_ptr<Hypergraph> hg;
 
-    if (opts.generator == "uniform") {
-        hg = generate_uniform(opts.vertices, opts.edges,
-                              opts.min_edge_size, opts.max_edge_size, opts.seed);
-    } else if (opts.generator == "fixed") {
-        hg = generate_fixed_edge_size(opts.vertices, opts.edges,
-                                      opts.edge_size, opts.seed);
-    } else if (opts.generator == "planted") {
-        hg = generate_planted_partition(opts.vertices, opts.edges,
-                                        opts.communities, opts.p_intra,
-                                        opts.min_edge_size, opts.max_edge_size,
-                                        opts.seed);
+    if (!opts.load_file.empty()) {
+        // Load from binary file
+        hg = Hypergraph::load_from_file(opts.load_file);
     } else {
-        throw std::invalid_argument("Unknown generator: '" + opts.generator + "' (use uniform|fixed|planted)");
+        if (opts.generator == "uniform") {
+            hg = generate_uniform(opts.vertices, opts.edges,
+                                  opts.min_edge_size, opts.max_edge_size, opts.seed);
+        } else if (opts.generator == "fixed") {
+            hg = generate_fixed_edge_size(opts.vertices, opts.edges,
+                                          opts.edge_size, opts.seed);
+        } else if (opts.generator == "planted") {
+            hg = generate_planted_partition(opts.vertices, opts.edges,
+                                            opts.communities, opts.p_intra,
+                                            opts.min_edge_size, opts.max_edge_size,
+                                            opts.seed);
+        } else {
+            throw std::invalid_argument("Unknown generator: '" + opts.generator + "' (use uniform|fixed|planted)");
+        }
     }
 
     if (opts.label_classes > 0) {
         auto labels = generate_random_labels(hg->get_num_vertices(), opts.label_classes, opts.label_seed);
         hg->set_labels(labels);
+    }
+
+    if (!opts.save_file.empty()) {
+        hg->save_to_file(opts.save_file);
     }
 
     return hg;
