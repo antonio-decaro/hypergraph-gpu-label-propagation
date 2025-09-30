@@ -89,6 +89,7 @@ if(BUILD_SYCL)
         target_link_libraries(label_propagation_sycl 
             PRIVATE 
             hypergraph_common
+            cli_common
         )
 
         target_include_directories(label_propagation_sycl PRIVATE src/sycl)
@@ -123,6 +124,7 @@ if(BUILD_KOKKOS)
         target_link_libraries(label_propagation_kokkos 
             PRIVATE 
             hypergraph_common
+            cli_common
             Kokkos::kokkos
         )
         
@@ -139,44 +141,10 @@ endif()
 # Print build summary
 message(STATUS "")
 message(STATUS "Build Configuration Summary:")
-message(STATUS "  OpenMP: ${BUILD_OPENMP}")
+message(STATUS "  OpenMP: ${BUILD_OPENMP} | OMP Offload=${ENABLE_OPENMP_OFFLOAD} arch='${OMP_TARGET_ARCH}'")
 message(STATUS "  SYCL:   ${BUILD_SYCL}")  
 message(STATUS "  Kokkos: ${BUILD_KOKKOS}")
 message(STATUS "")
-
-# Add custom target to build all available implementations
-add_custom_target(all_implementations)
-
-if(TARGET label_propagation_openmp)
-    add_dependencies(all_implementations label_propagation_openmp)
-endif()
-
-if(TARGET label_propagation_sycl)
-    add_dependencies(all_implementations label_propagation_sycl)
-endif()
-
-if(TARGET label_propagation_kokkos)
-    add_dependencies(all_implementations label_propagation_kokkos)
-endif()
-
-# Installation
-if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
-    set(CMAKE_INSTALL_PREFIX "${CMAKE_BINARY_DIR}/install" CACHE PATH "Install path" FORCE)
-endif()
-
-if(TARGET label_propagation_openmp)
-    install(TARGETS label_propagation_openmp DESTINATION bin)
-endif()
-
-if(TARGET label_propagation_sycl)
-    install(TARGETS label_propagation_sycl DESTINATION bin)
-endif()
-
-if(TARGET label_propagation_kokkos)
-    install(TARGETS label_propagation_kokkos DESTINATION bin)
-endif()
-
-install(FILES include/hypergraph.hpp DESTINATION include)
 
 # Add usage information
 message(STATUS "Usage:")
