@@ -188,6 +188,23 @@ std::unique_ptr<Hypergraph> generate_planted_partition(std::size_t num_vertices,
                                                        unsigned int seed = 0);
 
 /**
+ * @brief Generate a hypergraph Stochastic Block Model (hSBM) with two edge types:
+ *        intra-community edges vs mixed-community edges.
+ *        For each edge, sample size k in [min_edge_size, max_edge_size].
+ *        Then sample a candidate k-set of vertices uniformly at random.
+ *        Accept with probability p_intra if all vertices in the set belong to the same community,
+ *        otherwise accept with probability p_inter. Repeat until num_edges edges are accepted.
+ */
+std::unique_ptr<Hypergraph> generate_hsbm(std::size_t num_vertices,
+                                          std::size_t num_edges,
+                                          std::size_t num_communities,
+                                          double p_intra,
+                                          double p_inter,
+                                          std::size_t min_edge_size = 2,
+                                          std::size_t max_edge_size = 5,
+                                          unsigned int seed = 0);
+
+/**
  * @brief Generate random labels for vertices in range [0, num_classes).
  * @param num_vertices Number of vertices
  * @param num_classes Number of distinct labels/classes (>=1)

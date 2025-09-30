@@ -263,6 +263,62 @@ std::vector<Hypergraph::Label> generate_random_labels(std::size_t num_vertices,
     return labels;
 }
 
+std::unique_ptr<Hypergraph> generate_hsbm(std::size_t num_vertices,
+                                          std::size_t num_edges,
+                                          std::size_t num_communities,
+                                          double p_intra,
+                                          double p_inter,
+                                          std::size_t min_edge_size,
+                                          std::size_t max_edge_size,
+                                          unsigned int seed) {
+    if (num_vertices == 0) throw std::invalid_argument("num_vertices must be > 0");
+    if (num_edges == 0) throw std::invalid_argument("num_edges must be > 0");
+    if (num_communities == 0) throw std::invalid_argument("num_communities must be > 0");
+    if (min_edge_size < 2) throw std::invalid_argument("min_edge_size must be >= 2");
+    if (max_edge_size < min_edge_size) throw std::invalid_argument("max_edge_size must be >= min_edge_size");
+    if (p_intra < 0.0 || p_intra > 1.0) throw std::invalid_argument("p_intra must be in [0,1]");
+    if (p_inter < 0.0 || p_inter > 1.0) throw std::invalid_argument("p_inter must be in [0,1]");
+
+    auto hg = std::make_unique<Hypergraph>(num_vertices);
+    auto gen = make_rng(seed);
+    std::uniform_int_distribution<std::size_t> sdist(min_edge_size, max_edge_size);
+    std::uniform_real_distribution<double> pdist(0.0, 1.0);
+
+    // Partition vertices as evenly as possible (deterministic mapping v % C)
+    std::vector<std::vector<Hypergraph::VertexId>> comms(num_communities);
+    for (std::size_t v = 0; v < num_vertices; ++v) {
+        comms[v % num_communities].push_back(static_cast<Hypergraph::VertexId>(v));
+    }
+
+    const std::size_t max_attempts = std::max<std::size_t>(num_edges * 20, 1000);
+    std::size_t added = 0;
+    std::size_t attempts = 0;
+    while (added < num_edges) {
+        if (attempts++ > max_attempts) {
+            throw std::runtime_error("hSBM: too many rejections; try increasing p_intra/p_inter or adjusting size range");
+        }
+        const std::size_t k = sdist(gen);
+        auto verts = sample_unique_vertices(num_vertices, k, gen);
+
+        // Determine if all vertices are in the same community
+        auto comm_of = [&](Hypergraph::VertexId x) { return x % num_communities; };
+        const std::size_t base = comm_of(verts[0]);
+        bool all_same = true;
+        for (std::size_t i = 1; i < verts.size(); ++i) {
+            if (comm_of(verts[i]) != base) { all_same = false; break; }
+        }
+
+        const double r = pdist(gen);
+        const double prob = all_same ? p_intra : p_inter;
+        if (r <= prob) {
+            hg->add_hyperedge(verts);
+            ++added;
+        }
+    }
+
+    return hg;
+}
+
 } // namespace HypergraphGenerators
 
 // ---------------------------

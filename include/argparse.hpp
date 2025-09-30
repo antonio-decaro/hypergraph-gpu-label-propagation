@@ -28,6 +28,7 @@ struct Options {
     std::size_t edge_size = 3; // for fixed
     std::size_t communities = 4; // for planted
     double p_intra = 0.8; // for planted
+    double p_inter = 0.2; // for hSBM
     unsigned int seed = 0; // 0 = nondeterministic
 
     // Labels
