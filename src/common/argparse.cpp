@@ -342,9 +342,9 @@ void print_cli_summary(const Options& opts) {
         } else {
             std::cout << "\n";
         }
-        std::cout << "  Labels: classes=" << opts.label_classes;
-        if (opts.label_seed) std::cout << ", label-seed=" << opts.label_seed;
-        std::cout << std::endl;
+    }
+    if (opts.label_classes > 0) {
+        std::cout << "  Labels: classes=" << opts.label_classes << ", seed=" << opts.label_seed << "\n";
     }
     if (!opts.save_file.empty()) {
         std::cout << "  Output: " << opts.save_file << "\n";
