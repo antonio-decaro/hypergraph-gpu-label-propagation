@@ -3,10 +3,98 @@
 #include <cctype>
 #include <iostream>
 #include <stdexcept>
+#include <unordered_set>
+#include <vector>
+#include <sstream>
 
 #include <cxxopts.hpp>
 
 namespace CLI {
+
+namespace {
+enum class GenKind { Uniform, Fixed, Erdos, Planted, Hsbm, Unknown };
+
+struct FieldDesc { const char* key; const char* label; };
+struct GenSpec {
+    const char* name;
+    std::vector<FieldDesc> fields; // order preserved for printing
+};
+
+static const GenSpec& get_spec(GenKind k) {
+    static const GenSpec uniform{"uniform", { {"min-edge-size", "min-edge-size"}, {"max-edge-size", "max-edge-size"} }};
+    static const GenSpec fixed  {"fixed",   { {"edge-size",     "edge-size"} }};
+    static const GenSpec planted{"planted", { {"communities",   "communities"}, {"p-intra", "p-intra"}, {"min-edge-size","min-edge-size"}, {"max-edge-size","max-edge-size"} }};
+    static const GenSpec hsbm   {"hsbm",    { {"communities",   "communities"}, {"p-intra","p-intra"}, {"p-inter","p-inter"}, {"min-edge-size","min-edge-size"}, {"max-edge-size","max-edge-size"} }};
+    switch (k) {
+        case GenKind::Uniform: return uniform;
+        case GenKind::Fixed:   return fixed;
+        case GenKind::Planted: return planted;
+        case GenKind::Hsbm:    return hsbm;
+        default:               return uniform; // fallback
+    }
+}
+
+static GenKind parse_kind(std::string s) {
+    for (auto& c : s) c = static_cast<char>(::tolower(static_cast<unsigned char>(c)));
+    if (s == "uniform") return GenKind::Uniform;
+    if (s == "fixed")   return GenKind::Fixed;
+    if (s == "planted") return GenKind::Planted;
+    if (s == "hsbm")    return GenKind::Hsbm;
+    return GenKind::Unknown;
+}
+
+static const std::vector<std::string>& all_gen_keys() {
+    static const std::vector<std::string> keys = {
+        "min-edge-size", "max-edge-size", "edge-size", "communities", "p-intra", "p-inter"
+    };
+    return keys;
+}
+
+static std::string field_value(const Options& o, const std::string& key) {
+    if (key == "min-edge-size") return std::to_string(o.min_edge_size);
+    if (key == "max-edge-size") return std::to_string(o.max_edge_size);
+    if (key == "edge-size")     return std::to_string(o.edge_size);
+    if (key == "communities")   return std::to_string(o.communities);
+    if (key == "p-intra")       return std::to_string(o.p_intra);
+    if (key == "p-inter")       return std::to_string(o.p_inter);
+    return "";
+}
+
+static void warn_irrelevant_params(const cxxopts::ParseResult& res, GenKind kind, const std::function<void(const std::string&)>& warn) {
+    std::unordered_set<std::string> relevant;
+    for (const auto& f : get_spec(kind).fields) relevant.insert(f.key);
+    for (const auto& k : all_gen_keys()) {
+        if (res.count(k) && !relevant.count(k)) {
+            warn(std::string("--") + k + " is ignored with --generator=" + get_spec(kind).name + ".");
+        }
+    }
+}
+
+static bool validate_generator_params(GenKind kind, const Options& o, std::string& err) {
+    switch (kind) {
+        case GenKind::Fixed:
+            if (o.edge_size < 2) { err = "--edge-size must be >= 2 for fixed generator."; return false; }
+            if (o.edge_size > o.vertices) { err = "--edge-size cannot exceed --vertices."; return false; }
+            return true;
+        case GenKind::Uniform:
+        case GenKind::Planted:
+        case GenKind::Hsbm:
+            if (o.min_edge_size < 2) { err = "--min-edge-size must be >= 2."; return false; }
+            if (o.max_edge_size < o.min_edge_size) { err = "--max-edge-size must be >= --min-edge-size."; return false; }
+            if (kind == GenKind::Planted || kind == GenKind::Hsbm) {
+                if (o.communities == 0) { err = "--communities must be > 0."; return false; }
+                if (o.communities > o.vertices) { err = "--communities cannot exceed --vertices."; return false; }
+                if (o.p_intra < 0.0 || o.p_intra > 1.0) { err = "--p-intra must be within [0,1]."; return false; }
+            }
+            if (kind == GenKind::Hsbm) {
+                if (o.p_inter < 0.0 || o.p_inter > 1.0) { err = "--p-inter must be within [0,1]."; return false; }
+            }
+            return true;
+        default:
+            err = "Unknown generator."; return false;
+    }
+}
+} // anonymous namespace
 
 Options parse_args(int argc, char** argv) {
     Options out;
@@ -29,7 +117,7 @@ Options parse_args(int argc, char** argv) {
     // Group: Generator selection and parameters
     bool flag_uniform = false, flag_fixed = false, flag_planted = false;
     opts.add_options("Generator")
-        ("g,generator", "Generator: uniform|fixed|planted|erdos|hsbm", cxxopts::value<std::string>(out.generator))
+        ("g,generator", "Generator: uniform|fixed|planted|hsbm", cxxopts::value<std::string>(out.generator))
         ("uniform", "Shortcut for --generator=uniform", cxxopts::value<bool>(flag_uniform)->default_value("false"))
         ("fixed",   "Shortcut for --generator=fixed",   cxxopts::value<bool>(flag_fixed)->default_value("false"))
         ("planted", "Shortcut for --generator=planted", cxxopts::value<bool>(flag_planted)->default_value("false"))
@@ -94,11 +182,10 @@ Options parse_args(int argc, char** argv) {
     }
 
     // Resolve generator from shortcut flags if provided
-    bool flag_erdos = result.count("erdos") > 0 ? result["erdos"].as<bool>() : false;
     bool flag_hsbm  = result.count("hsbm")  > 0 ? result["hsbm"].as<bool>()  : false;
-    int gen_flags = (flag_uniform ? 1 : 0) + (flag_fixed ? 1 : 0) + (flag_planted ? 1 : 0) + (flag_erdos ? 1 : 0) + (flag_hsbm ? 1 : 0);
+    int gen_flags = (flag_uniform ? 1 : 0) + (flag_fixed ? 1 : 0) + (flag_planted ? 1 : 0) + (flag_hsbm ? 1 : 0);
     if (gen_flags > 1) {
-        std::cerr << "Error: only one of --uniform/--fixed/--planted may be specified.\n";
+        std::cerr << "Error: only one of --uniform/--fixed/--planted/--hsbm may be specified.\n";
         print_help_with_generators();
         out.help = true;
         out.iterations = 0;
@@ -108,7 +195,6 @@ Options parse_args(int argc, char** argv) {
         if (flag_uniform) out.generator = "uniform";
         else if (flag_fixed) out.generator = "fixed";
         else if (flag_planted) out.generator = "planted";
-        else if (flag_erdos) out.generator = "erdos";
         else out.generator = "hsbm";
     }
 
@@ -116,8 +202,9 @@ Options parse_args(int argc, char** argv) {
     for (auto& c : out.generator) c = static_cast<char>(::tolower(static_cast<unsigned char>(c)));
 
     // Validate generator value early for better UX
-    if (out.generator != "uniform" && out.generator != "fixed" && out.generator != "planted" && out.generator != "erdos" && out.generator != "hsbm") {
-        std::cerr << "Error: Unknown generator: '" << out.generator << "' (use uniform|fixed|planted|erdos|hsbm).\n";
+    GenKind kind = parse_kind(out.generator);
+    if (kind == GenKind::Unknown) {
+        std::cerr << "Error: Unknown generator: '" << out.generator << "' (use uniform|fixed|planted|hsbm).\n";
         print_help_with_generators();
         out.help = true;
         out.iterations = 0;
@@ -137,32 +224,14 @@ Options parse_args(int argc, char** argv) {
 
     if (!out.load_file.empty()) {
         // Loading overrides generator-specific knobs; warn when both are supplied
-        if (result.count("generator") || flag_uniform || flag_fixed || flag_planted || flag_erdos || flag_hsbm) {
+        if (result.count("generator") || flag_uniform || flag_fixed || flag_planted || flag_hsbm) {
             warn("--load specified: generator selection and parameters are ignored.");
         }
-        if (result.count("min-edge-size")) warn("--min-edge-size is ignored when loading from file.");
-        if (result.count("max-edge-size")) warn("--max-edge-size is ignored when loading from file.");
-        if (result.count("edge-size")) warn("--edge-size is ignored when loading from file.");
-        if (result.count("communities")) warn("--communities is ignored when loading from file.");
-        if (result.count("p-intra")) warn("--p-intra is ignored when loading from file.");
-        if (result.count("p-inter")) warn("--p-inter is ignored when loading from file.");
-    } else if (out.generator == "fixed") {
-        if (result.count("min-edge-size")) warn("--min-edge-size is ignored with --generator=fixed.");
-        if (result.count("max-edge-size")) warn("--max-edge-size is ignored with --generator=fixed.");
-        if (!result.count("edge-size")) {
-            // Make it explicit to users that edge-size controls this generator
-            warn("--edge-size controls fixed generator edge cardinality (default=" + std::to_string(out.edge_size) + ").");
+        for (const auto& k : all_gen_keys()) {
+            if (result.count(k)) warn(std::string("--") + k + " is ignored when loading from file.");
         }
-    } else if (out.generator == "uniform") {
-        if (result.count("edge-size")) warn("--edge-size is ignored with --generator=uniform.");
-        if (result.count("communities")) warn("--communities is ignored with --generator=uniform.");
-        if (result.count("p-intra")) warn("--p-intra is ignored with --generator=uniform.");
-        if (result.count("p-inter")) warn("--p-inter is ignored with --generator=uniform.");
-    } else if (out.generator == "planted") {
-        if (result.count("edge-size")) warn("--edge-size is ignored with --generator=planted.");
-        if (result.count("p-inter")) warn("--p-inter is ignored with --generator=planted (use --p-intra only).");
-    } else if (out.generator == "hsbm") {
-        if (result.count("edge-size")) warn("--edge-size is ignored with --generator=hsbm.");
+    } else {
+        warn_irrelevant_params(result, kind, warn);
     }
 
      // Early parameter sanity for clearer messages than deeper throws
@@ -181,84 +250,17 @@ Options parse_args(int argc, char** argv) {
         return out;
     }
 
-    // Generator-specific validation hints
+    // Generator-specific validation
     if (!out.load_file.empty()) {
-        // No further generator validation needed when loading
-    } else if (out.generator == "fixed" || out.generator == "erdos") {
-        if (out.edge_size < 2) {
-            std::cerr << "Error: --edge-size must be >= 2 for fixed/erdos generator.\n";
-            print_help_with_generators();
-            out.help = true;
-            out.iterations = 0;
-            return out;
-        }
-        if (out.edge_size > out.vertices) {
-            std::cerr << "Error: --edge-size cannot exceed --vertices.\n";
-            print_help_with_generators();
-            out.help = true;
-            out.iterations = 0;
-            return out;
-        }
+        // File dictates structure; skip generator validation
     } else {
-        // uniform or planted
-        if (out.min_edge_size < 2) {
-            std::cerr << "Error: --min-edge-size must be >= 2.\n";
+        std::string err;
+        if (!validate_generator_params(kind, out, err)) {
+            std::cerr << "Error: " << err << "\n";
             print_help_with_generators();
             out.help = true;
             out.iterations = 0;
             return out;
-        }
-        if (out.max_edge_size < out.min_edge_size) {
-            std::cerr << "Error: --max-edge-size must be >= --min-edge-size.\n";
-            print_help_with_generators();
-            out.help = true;
-            out.iterations = 0;
-            return out;
-        }
-        if (out.generator == "planted") {
-            if (out.communities == 0) {
-                std::cerr << "Error: --communities must be > 0 for planted generator.\n";
-                print_help_with_generators();
-                out.help = true;
-                out.iterations = 0;
-                return out;
-            }
-            if (out.communities > out.vertices) {
-                std::cerr << "Error: --communities cannot exceed --vertices.\n";
-                print_help_with_generators();
-                out.help = true;
-                out.iterations = 0;
-                return out;
-            }
-            if (out.p_intra < 0.0 || out.p_intra > 1.0) {
-                std::cerr << "Error: --p-intra must be within [0,1].\n";
-                print_help_with_generators();
-                out.help = true;
-                out.iterations = 0;
-                return out;
-            }
-        } else if (out.generator == "hsbm") {
-            if (out.communities == 0) {
-                std::cerr << "Error: --communities must be > 0 for hsbm generator.\n";
-                print_help_with_generators();
-                out.help = true;
-                out.iterations = 0;
-                return out;
-            }
-            if (out.communities > out.vertices) {
-                std::cerr << "Error: --communities cannot exceed --vertices.\n";
-                print_help_with_generators();
-                out.help = true;
-                out.iterations = 0;
-                return out;
-            }
-            if (out.p_inter < 0.0 || out.p_inter > 1.0) {
-                std::cerr << "Error: --p-inter must be within [0,1].\n";
-                print_help_with_generators();
-                out.help = true;
-                out.iterations = 0;
-                return out;
-            }
         }
     }
 
