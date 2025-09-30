@@ -24,9 +24,21 @@ int main(int argc, char* argv[]) {
         std::cout << "  Edges: " << num_edges << "\n";
         std::cout << "  Max iterations: " << max_iterations << "\n";
 
+        // Parse command line arguments with cxxopts
+        auto opts = CLI::parse_args(argc, argv);
+        if (opts.iterations == 0 && opts.help) {
+            return 0; // help printed
+        }
+        
         // Generate test hypergraph
         std::cout << "Generating test hypergraph...\n";
-        auto hypergraph = generate_test_hypergraph(num_vertices, num_edges);
+        std::unique_ptr<Hypergraph> hypergraph;
+        try {
+            hypergraph = CLI::make_hypergraph(opts);
+        } catch (const std::exception& ex) {
+            std::cerr << "Error: " << ex.what() << "\n";
+            return 2;
+        }
         
         std::cout << "Hypergraph statistics:\n";
         std::cout << "  Vertices: " << hypergraph->get_num_vertices() << "\n";
