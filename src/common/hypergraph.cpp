@@ -184,6 +184,7 @@ std::unique_ptr<Hypergraph> generate_fixed_edge_size(std::size_t num_vertices,
     return hg;
 }
 
+
 std::unique_ptr<Hypergraph> generate_planted_partition(std::size_t num_vertices,
                                                        std::size_t num_edges,
                                                        std::size_t num_communities,

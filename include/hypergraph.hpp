@@ -168,6 +168,7 @@ std::unique_ptr<Hypergraph> generate_fixed_edge_size(std::size_t num_vertices,
                                                      std::size_t edge_size,
                                                      unsigned int seed = 0);
 
+
 /**
  * @brief Generate a planted-partition (community) hypergraph.
  *        Edges are intra-community with probability p_intra, otherwise inter-community.
