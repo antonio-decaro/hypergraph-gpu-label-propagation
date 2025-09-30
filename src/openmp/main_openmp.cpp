@@ -13,14 +13,7 @@ int main(int argc, char* argv[]) {
         return 0; // help printed
     }
 
-    std::cout << "Parameters:\n";
-    std::cout << "  Vertices: " << opts.vertices << "\n";
-    std::cout << "  Edges: " << opts.edges << "\n";
-    std::cout << "  Max iterations: " << opts.iterations << "\n";
-    std::cout << "  Tolerance: " << opts.tolerance << "\n";
-    std::cout << "  Threads: " << (opts.threads == 0 ? "auto" : std::to_string(opts.threads)) << "\n";
-    std::cout << "  Generator: " << opts.generator << "\n";
-    std::cout << "  Seed: " << opts.seed << "\n\n";
+    CLI::print_cli_summary(opts);
 
     // Generate hypergraph via shared argparse helper
     std::unique_ptr<Hypergraph> hypergraph;
@@ -34,6 +27,7 @@ int main(int argc, char* argv[]) {
     std::cout << "Hypergraph statistics:\n";
     std::cout << "  Vertices: " << hypergraph->get_num_vertices() << "\n";
     std::cout << "  Hyperedges: " << hypergraph->get_num_edges() << "\n";
+    std::cout << std::endl;
 
     // Run OpenMP label propagation
     LabelPropagationOpenMP algorithm(opts.threads);

@@ -52,4 +52,7 @@ Options parse_args(int argc, char** argv);
 // Throws std::invalid_argument on invalid generator or parameters
 std::unique_ptr<Hypergraph> make_hypergraph(const Options& opts);
 
+// Print a concise, generator-aware summary of selected parameters
+void print_cli_summary(const Options& opts);
+
 } // namespace CLI

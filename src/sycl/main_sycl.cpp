@@ -9,28 +9,14 @@ int main(int argc, char* argv[]) {
     std::cout << "Hypergraph Label Propagation - SYCL Implementation\n";
     std::cout << "==================================================\n";
 
+    // Parse command line arguments with cxxopts
+    auto opts = CLI::parse_args(argc, argv);
+    if (opts.iterations == 0 && opts.help) {
+        return 0; // help printed
+    }
+
+
     try {
-        // Parse command line arguments
-        std::size_t num_vertices = 1000;
-        std::size_t num_edges = 5000;
-        int max_iterations = 100;
-
-        if (argc >= 2) num_vertices = std::stoull(argv[1]);
-        if (argc >= 3) num_edges = std::stoull(argv[2]);
-        if (argc >= 4) max_iterations = std::stoi(argv[3]);
-
-        std::cout << "Parameters:\n";
-        std::cout << "  Vertices: " << num_vertices << "\n";
-        std::cout << "  Edges: " << num_edges << "\n";
-        std::cout << "  Max iterations: " << max_iterations << "\n";
-
-        // Parse command line arguments with cxxopts
-        auto opts = CLI::parse_args(argc, argv);
-        if (opts.iterations == 0 && opts.help) {
-            return 0; // help printed
-        }
-        
-        // Generate test hypergraph
         std::cout << "Generating test hypergraph...\n";
         std::unique_ptr<Hypergraph> hypergraph;
         try {

@@ -315,4 +315,43 @@ std::unique_ptr<Hypergraph> make_hypergraph(const Options& opts) {
     return hg;
 }
 
+void print_cli_summary(const Options& opts) {
+    // Minimal, generator-aware line items to avoid verbosity
+    std::cout << "Parameters:\n";
+    std::cout << "  Max iterations: " << opts.iterations << "\n";
+    std::cout << "  Tolerance: " << opts.tolerance << "\n";
+    std::cout << "  Threads: " << (opts.threads == 0 ? "auto" : std::to_string(opts.threads)) << "\n";
+    if (!opts.load_file.empty()) {
+        std::cout << "  Input: " << opts.load_file << "\n";
+    } else {
+        std::cout << "  Vertices: " << opts.vertices << "\n";
+        std::cout << "  Edges: " << opts.edges << "\n";
+        std::cout << "  Seed: " << opts.seed << "\n";
+
+        std::cout << "  Generator: " << opts.generator;
+        GenKind kind = parse_kind(opts.generator);
+        const auto& spec = get_spec(kind);
+        if (!spec.fields.empty()) {
+            std::cout << " (";
+            for (std::size_t i = 0; i < spec.fields.size(); ++i) {
+                const auto& f = spec.fields[i];
+                std::cout << f.label << "=" << field_value(opts, f.key);
+                if (i + 1 < spec.fields.size()) std::cout << ", ";
+            }
+            std::cout << ")\n";
+        } else {
+            std::cout << "\n";
+        }
+        if (opts.label_classes > 0) {
+            std::cout << "  Labels: classes=" << opts.label_classes;
+            if (opts.label_seed) std::cout << ", label-seed=" << opts.label_seed;
+            std::cout << "\n";
+        }
+    }
+    if (!opts.save_file.empty()) {
+        std::cout << "  Output: " << opts.save_file << "\n";
+    }
+    std::cout << "\n";
+}
+
 } // namespace CLI
