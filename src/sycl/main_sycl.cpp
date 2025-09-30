@@ -16,7 +16,7 @@ std::unique_ptr<Hypergraph> generate_test_hypergraph(std::size_t num_vertices,
     std::mt19937 gen(rd());
     std::uniform_int_distribution<std::size_t> vertex_dist(0, num_vertices - 1);
     std::uniform_int_distribution<std::size_t> size_dist(2, max_edge_size);
-    std::uniform_int_distribution<Hypergraph::Label> label_dist(0, num_vertices / 100);
+    std::uniform_int_distribution<Hypergraph::Label> label_dist(0, num_vertices / 10);
 
     // Generate random hyperedges
     for (std::size_t e = 0; e < num_edges; ++e) {
