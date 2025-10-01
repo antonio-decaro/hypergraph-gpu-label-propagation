@@ -99,8 +99,8 @@ private:
      * @brief Run one iteration of label propagation on GPU
      */
     bool run_iteration_sycl(const DeviceFlatHypergraph& flat_hg,
-                            const Hypergraph::Label* current_labels,
-                            Hypergraph::Label* new_labels,
+                            Hypergraph::Label* vertex_labels,
+                            Hypergraph::Label* edge_labels,
                             std::size_t* changes,
                             double tolerance);
 };
