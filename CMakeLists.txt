@@ -34,8 +34,14 @@ set(BUILD_OPENMP ON CACHE BOOL "Build OpenMP implementation")
 set(BUILD_SYCL OFF CACHE BOOL "Build SYCL implementation")  
 set(BUILD_KOKKOS OFF CACHE BOOL "Build Kokkos implementation")
 
+set(OFFLOAD_VENDOR "NVIDIA" CACHE STRING "Offload target vendor: NVIDIA, AMD, or INTEL")
+set_property(CACHE OFFLOAD_VENDOR PROPERTY STRINGS "NVIDIA" "AMD" "INTEL")
+
+set(OFFLOAD_TARGET "none" CACHE STRING "Offload target architecture (none, sm_70, sm_80, sm_86, gfx908, gfx90a, x86_64, etc.)")
+
 # OpenMP target offload configuration (module)
 include(cmake/OpenMPOffload.cmake)
+include(cmake/SYCLOffload.cmake)
 
 # Resolve cxxopts via bundled module
 include(cmake/FetchCXXOPTS.cmake)
@@ -72,8 +78,6 @@ endif()
 
 # Build SYCL implementation
 if(BUILD_SYCL)
-    set(SYCL_TARGETS "spir64" CACHE STRING "SYCL targets to build for (semicolon-separated list)")
-
     include(CheckCXXCompilerFlag)
     check_cxx_compiler_flag("-fsycl" CMAKE_CXX_COMPILER_SUPPORTS_FSYCL)
 
@@ -94,15 +98,7 @@ if(BUILD_SYCL)
 
         target_include_directories(label_propagation_sycl PRIVATE src/sycl)
 
-        target_compile_options(label_propagation_sycl PRIVATE 
-            -fsycl
-            -fsycl-targets=${SYCL_TARGETS}
-        )
-
-        target_link_options(label_propagation_sycl PRIVATE 
-            -fsycl
-            -fsycl-targets=${SYCL_TARGETS}
-        )
+        sycl_configure_offload(label_propagation_sycl)
     else()
         message(WARNING "Selected compiler (${CMAKE_CXX_COMPILER}) does not support -fsycl. Skipping SYCL implementation.")
         set(BUILD_SYCL OFF CACHE BOOL "Build SYCL implementation" FORCE)
