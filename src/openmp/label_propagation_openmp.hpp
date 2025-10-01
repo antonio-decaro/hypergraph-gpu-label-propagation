@@ -27,16 +27,4 @@ public:
 
 private:
     int num_threads_;
-    
-    /**
-     * @brief Compute the most frequent label among neighbors
-     */
-    Hypergraph::Label compute_new_label(const Hypergraph& hypergraph, Hypergraph::VertexId vertex_id);
-    
-    /**
-     * @brief Check convergence
-     */
-    bool check_convergence(const std::vector<Hypergraph::Label>& old_labels, 
-                          const std::vector<Hypergraph::Label>& new_labels,
-                          double tolerance);
 };
