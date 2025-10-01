@@ -97,8 +97,6 @@ bool LabelPropagationSYCL::run_iteration_sycl(const DeviceFlatHypergraph& flat_h
                     label_weights[label] += 1.0f;
                 }
 
-                
-
                 // Find label with maximum weight
                 Hypergraph::Label best_label = edge_labels[e];
                 float max_weight = 0.0f;
