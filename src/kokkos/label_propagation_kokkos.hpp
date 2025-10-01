@@ -39,11 +39,9 @@ public:
      */
     std::string get_name() const override { return "Kokkos"; }
 
-private:
-    bool kokkos_initialized_;
-
     /**
      * @brief Flattened hypergraph representation for Kokkos
+     *        Needs to be public so it can be captured in device lambdas.
      */
     struct KokkosHypergraph {
         VertexView edge_vertices;     // Flattened vertex list
@@ -54,17 +52,12 @@ private:
         std::size_t num_vertices;
         std::size_t num_edges;
     };
+
+private:
+    bool kokkos_initialized_;
     
     /**
      * @brief Convert hypergraph to Kokkos representation
      */
     KokkosHypergraph create_kokkos_hypergraph(const Hypergraph& hypergraph);
-    
-    /**
-     * @brief Run one iteration of label propagation
-     */
-    bool run_iteration_kokkos(const KokkosHypergraph& kokkos_hg,
-                             const LabelView& current_labels,
-                             const LabelView& new_labels,
-                             double tolerance);
 };

@@ -25,39 +25,95 @@ int LabelPropagationKokkos::run(Hypergraph& hypergraph, int max_iterations, doub
     // Convert to Kokkos representation
     auto kokkos_hg = create_kokkos_hypergraph(hypergraph);
     
-    // Initialize labels
-    auto labels = hypergraph.get_labels();
-    LabelView current_labels("current_labels", labels.size());
-    LabelView new_labels("new_labels", labels.size());
-    
-    // Copy initial labels to device
-    auto host_labels = Kokkos::create_mirror_view(current_labels);
-    for (std::size_t i = 0; i < labels.size(); ++i) {
-        host_labels(i) = labels[i];
+    // Initialize vertex and edge labels
+    auto host_init_labels = hypergraph.get_labels();
+    LabelView vertex_labels("vertex_labels", host_init_labels.size());
+    LabelView edge_labels("edge_labels", kokkos_hg.num_edges);
+
+    // Copy initial vertex labels to device
+    {
+        auto h_vlabels = Kokkos::create_mirror_view(vertex_labels);
+        for (std::size_t i = 0; i < host_init_labels.size(); ++i) {
+            h_vlabels(i) = host_init_labels[i];
+        }
+        Kokkos::deep_copy(vertex_labels, h_vlabels);
     }
-    Kokkos::deep_copy(current_labels, host_labels);
+    // Initialize edge labels to zero
+    Kokkos::deep_copy(edge_labels, Hypergraph::Label(0));
 
     int iteration = 0;
+    constexpr int MAX_LABELS = 10; // keep consistent with SYCL/OpenMP
     for (iteration = 0; iteration < max_iterations; ++iteration) {
-        bool converged = run_iteration_kokkos(kokkos_hg, current_labels, new_labels, tolerance);
-        
-        if (converged) {
+        // Phase 1: update edge labels from incident vertex labels (unweighted counts)
+        Kokkos::parallel_for("edge_update", kokkos_hg.num_edges, KOKKOS_LAMBDA(const std::size_t e) {
+            float counts[MAX_LABELS];
+            for (int i = 0; i < MAX_LABELS; ++i) counts[i] = 0.0f;
+
+            const std::size_t v_begin = kokkos_hg.edge_offsets(e);
+            const std::size_t v_end   = kokkos_hg.edge_offsets(e + 1);
+            for (std::size_t j = v_begin; j < v_end; ++j) {
+                const auto u = kokkos_hg.edge_vertices(j);
+                const int lab = static_cast<int>(vertex_labels(u));
+                if (lab >= 0 && lab < MAX_LABELS) counts[lab] += 1.0f;
+            }
+
+            int best = edge_labels(e);
+            float best_w = -1.0f;
+            for (int lab = 0; lab < MAX_LABELS; ++lab) {
+                if (counts[lab] > best_w) {
+                    best_w = counts[lab];
+                    best = lab;
+                }
+            }
+            edge_labels(e) = static_cast<Hypergraph::Label>(best);
+        });
+
+        // Phase 2: update vertex labels from incident edge labels and count changes
+        std::size_t changes = 0;
+        Kokkos::parallel_reduce("vertex_update", kokkos_hg.num_vertices,
+            KOKKOS_LAMBDA(const std::size_t v, std::size_t& local_changes) {
+                float counts[MAX_LABELS];
+                for (int i = 0; i < MAX_LABELS; ++i) counts[i] = 0.0f;
+
+                const std::size_t e_begin = kokkos_hg.vertex_offsets(v);
+                const std::size_t e_end   = kokkos_hg.vertex_offsets(v + 1);
+                for (std::size_t i = e_begin; i < e_end; ++i) {
+                    const auto e = kokkos_hg.vertex_edges(i);
+                    const int lab = static_cast<int>(edge_labels(e));
+                    if (lab >= 0 && lab < MAX_LABELS) counts[lab] += 1.0f;
+                }
+
+                int best = vertex_labels(v);
+                float best_w = -1.0f;
+                for (int lab = 0; lab < MAX_LABELS; ++lab) {
+                    if (counts[lab] > best_w) {
+                        best_w = counts[lab];
+                        best = lab;
+                    }
+                }
+
+                if (vertex_labels(v) != static_cast<Hypergraph::Label>(best)) {
+                    vertex_labels(v) = static_cast<Hypergraph::Label>(best);
+                    local_changes += 1;
+                }
+            },
+            changes);
+
+        const double change_ratio = static_cast<double>(changes) / static_cast<double>(kokkos_hg.num_vertices);
+        if (change_ratio < tolerance) {
             std::cout << "Converged after " << iteration + 1 << " iterations\n";
             break;
         }
-
-        // Swap views
-        std::swap(current_labels, new_labels);
-        
         if ((iteration + 1) % 10 == 0) {
             std::cout << "Iteration " << iteration + 1 << " completed\n";
         }
     }
 
     // Copy results back to host
-    Kokkos::deep_copy(host_labels, current_labels);
-    std::vector<Hypergraph::Label> final_labels(labels.size());
-    for (std::size_t i = 0; i < labels.size(); ++i) {
+    auto host_labels = Kokkos::create_mirror_view(vertex_labels);
+    Kokkos::deep_copy(host_labels, vertex_labels);
+    std::vector<Hypergraph::Label> final_labels(host_init_labels.size());
+    for (std::size_t i = 0; i < host_init_labels.size(); ++i) {
         final_labels[i] = host_labels(i);
     }
     hypergraph.set_labels(final_labels);
@@ -134,81 +190,4 @@ LabelPropagationKokkos::create_kokkos_hypergraph(const Hypergraph& hypergraph) {
     return kokkos_hg;
 }
 
-bool LabelPropagationKokkos::run_iteration_kokkos(const KokkosHypergraph& kokkos_hg,
-                                                  const LabelView& current_labels,
-                                                  const LabelView& new_labels,
-                                                  double tolerance) {
-    
-    // Counter for convergence check
-    CounterView changes_counter("changes_counter", 1);
-    Kokkos::deep_copy(changes_counter, 0);
-
-    // Label propagation kernel
-    Kokkos::parallel_for("label_propagation", kokkos_hg.num_vertices, 
-                        KOKKOS_LAMBDA(const std::size_t v) {
-        
-        std::size_t edge_start = kokkos_hg.vertex_offsets(v);
-        std::size_t edge_end = kokkos_hg.vertex_offsets(v + 1);
-        
-        if (edge_start == edge_end) {
-            new_labels(v) = current_labels(v);  // Keep current label if isolated
-            return;
-        }
-
-        // Count label frequencies with weights
-        constexpr int MAX_LABELS = 1000;  // Adjust based on expected label range
-        double label_weights[MAX_LABELS];
-        
-        // Initialize weights
-        for (int i = 0; i < MAX_LABELS; ++i) {
-            label_weights[i] = 0.0;
-        }
-        
-        // Process each incident edge
-        for (std::size_t edge_idx = edge_start; edge_idx < edge_end; ++edge_idx) {
-            auto edge_id = kokkos_hg.vertex_edges(edge_idx);
-            std::size_t vertices_start = kokkos_hg.edge_offsets(edge_id);
-            std::size_t vertices_end = kokkos_hg.edge_offsets(edge_id + 1);
-            std::size_t edge_size = vertices_end - vertices_start;
-            
-            double weight = 1.0 / static_cast<double>(edge_size);
-            
-            // Add weights for all neighbors in this edge
-            for (std::size_t vert_idx = vertices_start; vert_idx < vertices_end; ++vert_idx) {
-                auto neighbor = kokkos_hg.edge_vertices(vert_idx);
-                if (neighbor != v) {
-                    auto label = current_labels(neighbor);
-                    if (label >= 0 && label < MAX_LABELS) {
-                        label_weights[label] += weight;
-                    }
-                }
-            }
-        }
-        
-        // Find label with maximum weight
-        Hypergraph::Label best_label = current_labels(v);
-        double max_weight = 0.0;
-        
-        for (int label = 0; label < MAX_LABELS; ++label) {
-            if (label_weights[label] > max_weight) {
-                max_weight = label_weights[label];
-                best_label = label;
-            }
-        }
-        
-        new_labels(v) = best_label;
-        
-        // Count changes for convergence check
-        if (current_labels(v) != best_label) {
-            Kokkos::atomic_increment(&changes_counter(0));
-        }
-    });
-
-    // Get change count
-    auto host_changes = Kokkos::create_mirror_view(changes_counter);
-    Kokkos::deep_copy(host_changes, changes_counter);
-    std::size_t changes = host_changes(0);
-    
-    double change_ratio = static_cast<double>(changes) / static_cast<double>(kokkos_hg.num_vertices);
-    return change_ratio < tolerance;
-}
+// run_iteration_kokkos removed: algorithm is now implemented inline in run() with two phases
