@@ -63,11 +63,12 @@ class LabelPropagationSYCL : public LabelPropagationAlgorithm {
         device_flat_hg.num_edges = flat_hg.num_edges;
 
         // Copy data to device
-        queue_.copy(flat_hg.edge_vertices.data(), device_flat_hg.edge_vertices, flat_hg.edge_vertices.size()).wait();
-        queue_.copy(flat_hg.edge_offsets.data(), device_flat_hg.edge_offsets, flat_hg.edge_offsets.size()).wait();
-        queue_.copy(flat_hg.vertex_edges.data(), device_flat_hg.vertex_edges, flat_hg.vertex_edges.size()).wait();
-        queue_.copy(flat_hg.vertex_offsets.data(), device_flat_hg.vertex_offsets, flat_hg.vertex_offsets.size()).wait();
-        queue_.copy(flat_hg.edge_sizes.data(), device_flat_hg.edge_sizes, flat_hg.edge_sizes.size()).wait();
+        queue_.copy(flat_hg.edge_vertices.data(), device_flat_hg.edge_vertices, flat_hg.edge_vertices.size());
+        queue_.copy(flat_hg.edge_offsets.data(), device_flat_hg.edge_offsets, flat_hg.edge_offsets.size());
+        queue_.copy(flat_hg.vertex_edges.data(), device_flat_hg.vertex_edges, flat_hg.vertex_edges.size());
+        queue_.copy(flat_hg.vertex_offsets.data(), device_flat_hg.vertex_offsets, flat_hg.vertex_offsets.size());
+        queue_.copy(flat_hg.edge_sizes.data(), device_flat_hg.edge_sizes, flat_hg.edge_sizes.size());
+        queue_.wait();
 
         return device_flat_hg;
     }

@@ -17,7 +17,7 @@ int LabelPropagationSYCL::run(Hypergraph& hypergraph, int max_iterations, double
 
     // Flatten the hypergraph for GPU processing
     auto hg = create_device_hypergraph(hypergraph);
-    size_t* changes = sycl::malloc_shared<size_t>(1, queue_);
+    size_t* changes = sycl::malloc_device<size_t>(1, queue_);
 
     int iteration = 0;
 
@@ -56,8 +56,6 @@ int LabelPropagationSYCL::run(Hypergraph& hypergraph, int max_iterations, double
 }
 
 bool LabelPropagationSYCL::run_iteration_sycl(const DeviceFlatHypergraph& flat_hg, Hypergraph::Label* vertex_labels, Hypergraph::Label* edge_labels, std::size_t* changes, double tolerance) {
-    *changes = 0;
-
     size_t workgroup_size = device_.workgroup_size;
 
     constexpr int MAX_LABELS = 10; // Adjust based on expected label range
@@ -77,6 +75,8 @@ bool LabelPropagationSYCL::run_iteration_sycl(const DeviceFlatHypergraph& flat_h
         auto e = queue_.submit([&](sycl::handler& h) {
             h.parallel_for(sycl::nd_range<1>(global_size, workgroup_size), [=](sycl::nd_item<1> idx) {
                 std::size_t e = idx.get_global_id(0);
+
+                if (e == 0) { *changes_ptr = 0; }
 
                 if (e >= flat_hg.num_edges) return;
 
@@ -166,7 +166,8 @@ bool LabelPropagationSYCL::run_iteration_sycl(const DeviceFlatHypergraph& flat_h
     } catch (...) { throw; }
 
     // Check convergence
-    std::size_t changes_count = *changes;
+    std::size_t changes_count;
+    queue_.copy(changes, &changes_count, 1).wait();
     double change_ratio = static_cast<double>(changes_count) / static_cast<double>(flat_hg.num_vertices);
     return change_ratio < tolerance;
 }
