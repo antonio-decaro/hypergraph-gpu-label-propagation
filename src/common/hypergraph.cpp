@@ -77,7 +77,7 @@ Hypergraph::FlatHypergraph Hypergraph::flatten() const {
     return flat_hg;
 }
 
-void Hypergraph::finalize() {
+void Hypergraph::freeze() {
     // Create and cache the flattened representation
     flat_cache_ = std::make_shared<FlatHypergraph>(flatten());
 }

@@ -85,9 +85,9 @@ class Hypergraph {
     const std::vector<std::size_t>& get_edge_sizes() const { return edge_sizes_; }
 
     /**
-     * @brief Finalize the hypergraph (e.g., allocate memory for flattened representation)
+     * @brief Freeze the hypergraph (e.g., allocate memory for flattened representation)
      */
-    void finalize();
+    void freeze();
 
     /**
      * @brief Flatten hypergraph data for GPU processing
