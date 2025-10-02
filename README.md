@@ -57,7 +57,7 @@ Labels
 - `--label-seed` RNG seed for labels (0=nondeterministic)
 
 I/O
-- `--load <file>` load a hypergraph from binary
+- `--load <file>` load a hypergraph from file (binary or JSON)
 - `--save <file>` save the generated/loaded hypergraph to binary
 
 Generator selection
@@ -92,6 +92,9 @@ Examples
 
 # Load from file and re-label
 ./label_propagation_openmp --load data/uniform.bin --label-classes 6 --label-seed 42
+
+# Load from JSON
+./label_propagation_openmp --load data/graph.json
 ```
 
 ## Generators (brief)
@@ -100,7 +103,8 @@ Examples
 - planted: Partition vertices into `communities`. For each edge, sample size in range; with probability `p-intra`, draw mostly from a single community (fill from outside if needed); otherwise mix across communities.
 - hSBM: Rejection sampling. For a random k‑set, accept with `p-intra` if all vertices are in the same community; otherwise with `p-inter`. Edge size k sampled in range.
 
-## Binary format
+## File formats
+### Binary (default)
 Saved via `--save` and loaded via `--load` (little‑endian):
 - uint32 magic: `HGR1`
 - uint32 version: `1`
@@ -109,6 +113,39 @@ Saved via `--save` and loaded via `--load` (little‑endian):
 - For each edge: uint64 `edge_size`, followed by `edge_size` x uint64 vertex ids
 - uint8 `has_labels`
 - If `has_labels`: `num_vertices` x int32 labels
+
+### JSON (load only)
+`--load` also accepts a simple JSON file with this schema:
+```
+{
+  "num_vertices": <number>,
+  "edges": [[v0, v1, ...], [ ... ], ...],
+  "labels": [l0, l1, ..., l_{num_vertices-1}] // optional
+}
+```
+Notes:
+- Keys can appear in any order; `edges` may also be under `hyperedges`.
+- `num_vertices` must be > 0; each edge must be non-empty; if `labels` is present its size must equal `num_vertices`.
+
+Alternatively, a richer schema is supported (commonly used in hypergraph tools):
+```
+{
+  "type": "hypergraph",
+  "hypergraph-data": { "name": "..." },
+  "node-data": {
+    "1": { "name": "..." },
+    "2": { "name": "..." }
+  },
+  "edge-dict": {
+    "0": ["1", "2"],
+    "1": ["2", "3"]
+  }
+}
+```
+Rules for this schema:
+- Node ids are strings; they are mapped to contiguous 0..N-1 in the order first seen.
+- Vertices are the union of ids from `node-data` keys and all ids appearing in `edge-dict` arrays.
+- Each edge’s array must be non-empty. Labels are optional and, if provided separately as `labels`, must match the vertex count.
 
 ## Algorithm (Label Propagation)
 - Per iteration, each vertex adopts the label maximizing the weighted count from incident hyperedges (weight 1/edge_size per neighbor occurrence).

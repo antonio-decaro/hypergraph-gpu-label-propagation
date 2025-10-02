@@ -40,7 +40,7 @@ struct Options {
     unsigned int label_seed = 0;   // 0 = nondeterministic
 
     // IO
-    std::string load_file; // if non-empty, load hypergraph from this binary file
+    std::string load_file; // if non-empty, load hypergraph from this file (binary or JSON)
     std::string save_file; // if non-empty, save generated/loaded hypergraph to this binary file
 
     // Misc

@@ -1,10 +1,15 @@
 #include "hypergraph.hpp"
+#include "utils.hpp"
 #include <algorithm>
+#include <cctype>
 #include <cstdint>
 #include <fstream>
+#include <istream>
 #include <random>
 #include <set>
 #include <stdexcept>
+#include <string>
+#include <unordered_map>
 
 Hypergraph::Hypergraph(std::size_t num_vertices) : num_vertices_(num_vertices), incident_edges_(num_vertices), labels_(num_vertices, 0), degrees_(num_vertices, 0) {}
 
@@ -282,19 +287,14 @@ generate_hsbm(std::size_t num_vertices, std::size_t num_edges, std::size_t num_c
 } // namespace hypergraph_generators
 
 // ---------------------------
-// Serialization (binary)
+// Serialization (binary + JSON)
 // ---------------------------
-
-namespace {
-// 'HGR1' in little-endian for easy inspection
-constexpr std::uint32_t HGR_ASCII = 0x31475248; // 'H''G''R''1'
-} // namespace
 
 void Hypergraph::save_to_file(const std::string& path) const {
     std::ofstream os(path, std::ios::binary);
     if (!os) { throw std::runtime_error("Failed to open file for writing: " + path); }
 
-    const std::uint32_t magic = HGR_ASCII; // 'HGR1'
+    const std::uint32_t magic = utils::HGR_ASCII; // 'HGR1'
     const std::uint32_t version = 1u;
     const std::uint64_t nv = static_cast<std::uint64_t>(num_vertices_);
     const std::uint64_t ne = static_cast<std::uint64_t>(get_num_edges());
@@ -329,46 +329,21 @@ std::unique_ptr<Hypergraph> Hypergraph::load_from_file(const std::string& path) 
     std::ifstream is(path, std::ios::binary);
     if (!is) { throw std::runtime_error("Failed to open file for reading: " + path); }
 
-    std::uint32_t magic = 0, version = 0;
-    is.read(reinterpret_cast<char*>(&magic), sizeof(magic));
-    is.read(reinterpret_cast<char*>(&version), sizeof(version));
-    if (!is || magic != HGR_ASCII || version != 1u) { throw std::runtime_error("Invalid hypergraph file (bad magic/version): " + path); }
-
-    std::uint64_t nv = 0, ne = 0;
-    is.read(reinterpret_cast<char*>(&nv), sizeof(nv));
-    is.read(reinterpret_cast<char*>(&ne), sizeof(ne));
-    if (!is || nv == 0) { throw std::runtime_error("Invalid hypergraph file (bad header): " + path); }
-
-    auto hg = std::make_unique<Hypergraph>(static_cast<std::size_t>(nv));
-
-    for (std::uint64_t e = 0; e < ne; ++e) {
-        std::uint64_t sz = 0;
-        is.read(reinterpret_cast<char*>(&sz), sizeof(sz));
-        if (!is || sz == 0) { throw std::runtime_error("Invalid hypergraph file (bad edge size): " + path); }
-        std::vector<Hypergraph::VertexId> verts;
-        verts.reserve(static_cast<std::size_t>(sz));
-        for (std::uint64_t i = 0; i < sz; ++i) {
-            std::uint64_t vv = 0;
-            is.read(reinterpret_cast<char*>(&vv), sizeof(vv));
-            if (!is) { throw std::runtime_error("Invalid hypergraph file (truncated vertices): " + path); }
-            verts.push_back(static_cast<Hypergraph::VertexId>(vv));
-        }
-        hg->add_hyperedge(verts);
+    // Detect format by first non-whitespace byte: '{' => JSON, otherwise assume binary
+    // We avoid consuming bytes irreversibly by peeking/putback as needed.
+    // Since binary starts with 'H' from magic 'HGR1', this is unambiguous.
+    // Skip leading whitespace (for JSON)
+    while (true) {
+        int c = is.peek();
+        if (c == EOF) break;
+        if (!std::isspace(static_cast<unsigned char>(c))) break;
+        is.get();
     }
-
-    // Attempt to read labels flag (optional for forward compatibility)
-    std::uint8_t has_labels = 0u;
-    is.read(reinterpret_cast<char*>(&has_labels), sizeof(has_labels));
-    if (is && has_labels) {
-        std::vector<Label> labels(static_cast<std::size_t>(nv), 0);
-        for (std::size_t v = 0; v < static_cast<std::size_t>(nv); ++v) {
-            std::int32_t lab = 0;
-            is.read(reinterpret_cast<char*>(&lab), sizeof(lab));
-            if (!is) { throw std::runtime_error("Invalid hypergraph file (truncated labels): " + path); }
-            labels[v] = static_cast<Label>(lab);
-        }
-        hg->set_labels(labels);
-    }
-
-    return hg;
+    int first = is.peek();
+    if (first == '{') { return utils::load_hypergraph_from_json_stream(is, path); }
+    // Fallback: binary format
+    // Reset to beginning before binary read
+    is.clear();
+    is.seekg(0, std::ios::beg);
+    return utils::load_from_binary_stream(is, path);
 }

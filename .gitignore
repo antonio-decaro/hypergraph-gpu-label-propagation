@@ -60,3 +60,7 @@ Makefile
 # Backup files
 *~
 *.bak
+
+# Logs and databases
+*.log
+data/*.json

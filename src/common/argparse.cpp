@@ -47,7 +47,7 @@ GenKind parse_kind(std::string s) {
 }
 
 const std::vector<std::string>& all_gen_keys() {
-    const std::vector<std::string> keys = {"min-edge-size", "max-edge-size", "edge-size", "communities", "p-intra", "p-inter"};
+    static const std::vector<std::string> keys = {"min-edge-size", "max-edge-size", "edge-size", "communities", "p-intra", "p-inter"};
     return keys;
 }
 
@@ -150,7 +150,7 @@ Options parse_args(int argc, char** argv) {
         "workgroup-size", "GPU workgroup size (SYCL; default=64)", cxxopts::value<size_t>(out.device.workgroup_size));
 
     // Group: IO
-    opts.add_options("IO")("load", "Load hypergraph from binary file", cxxopts::value<std::string>(out.load_file))(
+    opts.add_options("IO")("load", "Load hypergraph from file (binary or JSON)", cxxopts::value<std::string>(out.load_file))(
         "save", "Save hypergraph to binary file", cxxopts::value<std::string>(out.save_file));
 
     // Group: Misc
