@@ -1,8 +1,8 @@
-#include "label_propagation_sycl.hpp"
 #include "argparse.hpp"
+#include "label_propagation_sycl.hpp"
+#include <chrono>
 #include <iostream>
 #include <random>
-#include <chrono>
 #include <set>
 
 
@@ -27,22 +27,22 @@ int main(int argc, char* argv[]) {
             std::cerr << "Error: " << ex.what() << "\n";
             return 2;
         }
-        
+
         std::cout << "Hypergraph statistics:\n";
         std::cout << "  Vertices: " << hypergraph->get_num_vertices() << "\n";
         std::cout << "  Hyperedges: " << hypergraph->get_num_edges() << "\n";
 
-        sycl::queue queue {sycl::gpu_selector_v};
+        sycl::queue queue{sycl::gpu_selector_v};
 
         // Run SYCL label propagation
-        LabelPropagationSYCL algorithm(queue);
-        
+        LabelPropagationSYCL algorithm(opts.device, queue);
+
         auto start_time = std::chrono::high_resolution_clock::now();
         int iterations = algorithm.run(*hypergraph, opts.iterations);
         auto end_time = std::chrono::high_resolution_clock::now();
-        
+
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-        
+
         std::cout << "\nResults:\n";
         std::cout << "  Iterations: " << iterations << "\n";
         std::cout << "  Runtime: " << duration.count() << " ms\n";

@@ -1,19 +1,19 @@
 #pragma once
 
 #include "hypergraph.hpp"
-#include <sycl/sycl.hpp>
 #include <string>
+#include <sycl/sycl.hpp>
 
 /**
  * @brief SYCL implementation of hypergraph label propagation
  */
 class LabelPropagationSYCL : public LabelPropagationAlgorithm {
-public:
+  public:
     /**
      * @brief Constructor
      * @param queue SYCL queue for device execution
      */
-    explicit LabelPropagationSYCL(sycl::queue& queue);
+    explicit LabelPropagationSYCL(const CLI::DeviceOptions& device, const sycl::queue& queue);
 
     /**
      * @brief Destructor
@@ -30,22 +30,22 @@ public:
      */
     std::string get_name() const override { return "SYCL"; }
 
-private:
+  private:
     sycl::queue queue_;
-    
+
     /**
      * @brief Flatten hypergraph data for GPU processing
      */
     struct DeviceFlatHypergraph {
-        Hypergraph::VertexId* edge_vertices;    // Flattened vertex list
-        std::size_t* edge_offsets;              // Offsets into edge_vertices
-        Hypergraph::EdgeId* vertex_edges;       // Flattened edge list per vertex
-        std::size_t* vertex_offsets;            // Offsets into vertex_edges
-        std::size_t* edge_sizes;                // Size of each edge
+        Hypergraph::VertexId* edge_vertices; // Flattened vertex list
+        std::size_t* edge_offsets;           // Offsets into edge_vertices
+        Hypergraph::EdgeId* vertex_edges;    // Flattened edge list per vertex
+        std::size_t* vertex_offsets;         // Offsets into vertex_edges
+        std::size_t* edge_sizes;             // Size of each edge
         std::size_t num_vertices;
         std::size_t num_edges;
     };
-    
+
     /**
      * @brief Convert hypergraph to flat representation
      */
@@ -94,13 +94,9 @@ private:
             flat_hg.edge_sizes = nullptr;
         }
     }
-    
+
     /**
      * @brief Run one iteration of label propagation on GPU
      */
-    bool run_iteration_sycl(const DeviceFlatHypergraph& flat_hg,
-                            Hypergraph::Label* vertex_labels,
-                            Hypergraph::Label* edge_labels,
-                            std::size_t* changes,
-                            double tolerance);
+    bool run_iteration_sycl(const DeviceFlatHypergraph& flat_hg, Hypergraph::Label* vertex_labels, Hypergraph::Label* edge_labels, std::size_t* changes, double tolerance);
 };

@@ -1,27 +1,18 @@
 #include "hypergraph.hpp"
-#include <stdexcept>
 #include <algorithm>
+#include <cstdint>
+#include <fstream>
 #include <random>
 #include <set>
-#include <fstream>
-#include <cstdint>
+#include <stdexcept>
 
-Hypergraph::Hypergraph(std::size_t num_vertices) 
-    : num_vertices_(num_vertices)
-    , incident_edges_(num_vertices)
-    , labels_(num_vertices, 0)
-    , degrees_(num_vertices, 0) {
-}
+Hypergraph::Hypergraph(std::size_t num_vertices) : num_vertices_(num_vertices), incident_edges_(num_vertices), labels_(num_vertices, 0), degrees_(num_vertices, 0) {}
 
 Hypergraph::EdgeId Hypergraph::add_hyperedge(const std::vector<VertexId>& vertices) {
-    if (vertices.empty()) {
-        throw std::invalid_argument("Hyperedge cannot be empty");
-    }
-    
+    if (vertices.empty()) { throw std::invalid_argument("Hyperedge cannot be empty"); }
+
     for (VertexId v : vertices) {
-        if (v >= num_vertices_) {
-            throw std::invalid_argument("Vertex ID out of range");
-        }
+        if (v >= num_vertices_) { throw std::invalid_argument("Vertex ID out of range"); }
     }
 
     EdgeId edge_id = hyperedges_.size();
@@ -38,23 +29,17 @@ Hypergraph::EdgeId Hypergraph::add_hyperedge(const std::vector<VertexId>& vertic
 }
 
 const std::vector<Hypergraph::VertexId>& Hypergraph::get_hyperedge(EdgeId edge_id) const {
-    if (edge_id >= hyperedges_.size()) {
-        throw std::invalid_argument("Edge ID out of range");
-    }
+    if (edge_id >= hyperedges_.size()) { throw std::invalid_argument("Edge ID out of range"); }
     return hyperedges_[edge_id];
 }
 
 const std::vector<Hypergraph::EdgeId>& Hypergraph::get_incident_edges(VertexId vertex_id) const {
-    if (vertex_id >= num_vertices_) {
-        throw std::invalid_argument("Vertex ID out of range");
-    }
+    if (vertex_id >= num_vertices_) { throw std::invalid_argument("Vertex ID out of range"); }
     return incident_edges_[vertex_id];
 }
 
 void Hypergraph::set_labels(const std::vector<Label>& labels) {
-    if (labels.size() != num_vertices_) {
-        throw std::invalid_argument("Labels size must match number of vertices");
-    }
+    if (labels.size() != num_vertices_) { throw std::invalid_argument("Labels size must match number of vertices"); }
     labels_ = labels;
 }
 
@@ -68,24 +53,20 @@ Hypergraph::FlatHypergraph Hypergraph::flatten() const {
     for (std::size_t e = 0; e < flat_hg.num_edges; ++e) {
         const auto& vertices = get_hyperedge(e);
         flat_hg.edge_sizes.push_back(vertices.size());
-        
-        for (auto v : vertices) {
-            flat_hg.edge_vertices.push_back(v);
-        }
+
+        for (auto v : vertices) { flat_hg.edge_vertices.push_back(v); }
         flat_hg.edge_offsets.push_back(flat_hg.edge_vertices.size());
     }
-    
+
     // Flatten vertex incident edges
     flat_hg.vertex_offsets.push_back(0);
     for (std::size_t v = 0; v < flat_hg.num_vertices; ++v) {
         const auto& edges = get_incident_edges(v);
 
-        for (auto e : edges) {
-            flat_hg.vertex_edges.push_back(e);
-        }
+        for (auto e : edges) { flat_hg.vertex_edges.push_back(e); }
         flat_hg.vertex_offsets.push_back(flat_hg.vertex_edges.size());
     }
-    
+
     return flat_hg;
 }
 
@@ -103,25 +84,16 @@ static std::mt19937 make_rng(unsigned int seed) {
     return std::mt19937(seed);
 }
 
-static std::vector<Hypergraph::VertexId>
-sample_unique_vertices(std::size_t num_vertices, std::size_t k, std::mt19937& gen) {
-    if (k > num_vertices) {
-        throw std::invalid_argument("Edge size exceeds number of vertices");
-    }
+static std::vector<Hypergraph::VertexId> sample_unique_vertices(std::size_t num_vertices, std::size_t k, std::mt19937& gen) {
+    if (k > num_vertices) { throw std::invalid_argument("Edge size exceeds number of vertices"); }
     std::set<Hypergraph::VertexId> s;
     std::uniform_int_distribution<std::size_t> vdist(0, num_vertices - 1);
-    while (s.size() < k) {
-        s.insert(static_cast<Hypergraph::VertexId>(vdist(gen)));
-    }
+    while (s.size() < k) { s.insert(static_cast<Hypergraph::VertexId>(vdist(gen))); }
     return std::vector<Hypergraph::VertexId>(s.begin(), s.end());
 }
 
-static std::vector<Hypergraph::VertexId>
-sample_unique_from_pool(const std::vector<Hypergraph::VertexId>& pool,
-                        std::size_t k, std::mt19937& gen) {
-    if (k > pool.size()) {
-        throw std::invalid_argument("Edge size exceeds pool size");
-    }
+static std::vector<Hypergraph::VertexId> sample_unique_from_pool(const std::vector<Hypergraph::VertexId>& pool, std::size_t k, std::mt19937& gen) {
+    if (k > pool.size()) { throw std::invalid_argument("Edge size exceeds pool size"); }
     // Reservoir sampling style (simple shuffle then take k)
     std::vector<Hypergraph::VertexId> tmp = pool;
     std::shuffle(tmp.begin(), tmp.end(), gen);
@@ -133,9 +105,7 @@ sample_unique_from_pool(const std::vector<Hypergraph::VertexId>& pool,
         // Add random new elements not in tmp
         std::uniform_int_distribution<std::size_t> idx(0, pool.size() - 1);
         Hypergraph::VertexId v = pool[idx(gen)];
-        if (!std::binary_search(tmp.begin(), tmp.end(), v)) {
-            tmp.insert(std::upper_bound(tmp.begin(), tmp.end(), v), v);
-        }
+        if (!std::binary_search(tmp.begin(), tmp.end(), v)) { tmp.insert(std::upper_bound(tmp.begin(), tmp.end(), v), v); }
     }
     return tmp;
 }
@@ -144,11 +114,7 @@ sample_unique_from_pool(const std::vector<Hypergraph::VertexId>& pool,
 
 namespace hypergraph_generators {
 
-std::unique_ptr<Hypergraph> generate_uniform(std::size_t num_vertices,
-                                             std::size_t num_edges,
-                                             std::size_t min_edge_size,
-                                             std::size_t max_edge_size,
-                                             unsigned int seed) {
+std::unique_ptr<Hypergraph> generate_uniform(std::size_t num_vertices, std::size_t num_edges, std::size_t min_edge_size, std::size_t max_edge_size, unsigned int seed) {
     if (num_vertices == 0) throw std::invalid_argument("num_vertices must be > 0");
     if (num_edges == 0) throw std::invalid_argument("num_edges must be > 0");
     if (min_edge_size < 2) throw std::invalid_argument("min_edge_size must be >= 2");
@@ -166,10 +132,7 @@ std::unique_ptr<Hypergraph> generate_uniform(std::size_t num_vertices,
     return hg;
 }
 
-std::unique_ptr<Hypergraph> generate_fixed_edge_size(std::size_t num_vertices,
-                                                     std::size_t num_edges,
-                                                     std::size_t edge_size,
-                                                     unsigned int seed) {
+std::unique_ptr<Hypergraph> generate_fixed_edge_size(std::size_t num_vertices, std::size_t num_edges, std::size_t edge_size, unsigned int seed) {
     if (num_vertices == 0) throw std::invalid_argument("num_vertices must be > 0");
     if (num_edges == 0) throw std::invalid_argument("num_edges must be > 0");
     if (edge_size < 2) throw std::invalid_argument("edge_size must be >= 2");
@@ -185,13 +148,8 @@ std::unique_ptr<Hypergraph> generate_fixed_edge_size(std::size_t num_vertices,
 }
 
 
-std::unique_ptr<Hypergraph> generate_planted_partition(std::size_t num_vertices,
-                                                       std::size_t num_edges,
-                                                       std::size_t num_communities,
-                                                       double p_intra,
-                                                       std::size_t min_edge_size,
-                                                       std::size_t max_edge_size,
-                                                       unsigned int seed) {
+std::unique_ptr<Hypergraph>
+generate_planted_partition(std::size_t num_vertices, std::size_t num_edges, std::size_t num_communities, double p_intra, std::size_t min_edge_size, std::size_t max_edge_size, unsigned int seed) {
     if (num_vertices == 0) throw std::invalid_argument("num_vertices must be > 0");
     if (num_edges == 0) throw std::invalid_argument("num_edges must be > 0");
     if (num_communities == 0) throw std::invalid_argument("num_communities must be > 0");
@@ -206,9 +164,7 @@ std::unique_ptr<Hypergraph> generate_planted_partition(std::size_t num_vertices,
 
     // Partition vertices as evenly as possible
     std::vector<std::vector<Hypergraph::VertexId>> comms(num_communities);
-    for (std::size_t v = 0; v < num_vertices; ++v) {
-        comms[v % num_communities].push_back(static_cast<Hypergraph::VertexId>(v));
-    }
+    for (std::size_t v = 0; v < num_vertices; ++v) { comms[v % num_communities].push_back(static_cast<Hypergraph::VertexId>(v)); }
 
     for (std::size_t e = 0; e < num_edges; ++e) {
         std::size_t k = sdist(gen);
@@ -218,13 +174,20 @@ std::unique_ptr<Hypergraph> generate_planted_partition(std::size_t num_vertices,
 
         if (intra) {
             // Choose a community weighted by size
-            std::vector<std::size_t> sizes; sizes.reserve(num_communities);
+            std::vector<std::size_t> sizes;
+            sizes.reserve(num_communities);
             std::size_t total = 0;
-            for (const auto& c : comms) { sizes.push_back(c.size()); total += c.size(); }
+            for (const auto& c : comms) {
+                sizes.push_back(c.size());
+                total += c.size();
+            }
             std::uniform_int_distribution<std::size_t> r(0, total - 1);
             std::size_t pick = r(gen);
             std::size_t idx = 0, acc = 0;
-            for (; idx < num_communities; ++idx) { if (pick < acc + sizes[idx]) break; acc += sizes[idx]; }
+            for (; idx < num_communities; ++idx) {
+                if (pick < acc + sizes[idx]) break;
+                acc += sizes[idx];
+            }
             if (idx >= num_communities) idx = num_communities - 1;
 
             // Sample k unique vertices from the chosen community
@@ -251,27 +214,17 @@ std::unique_ptr<Hypergraph> generate_planted_partition(std::size_t num_vertices,
     return hg;
 }
 
-std::vector<Hypergraph::Label> generate_random_labels(std::size_t num_vertices,
-                                                      std::size_t num_classes,
-                                                      unsigned int seed) {
+std::vector<Hypergraph::Label> generate_random_labels(std::size_t num_vertices, std::size_t num_classes, unsigned int seed) {
     if (num_classes == 0) throw std::invalid_argument("num_classes must be > 0");
     auto gen = make_rng(seed);
     std::uniform_int_distribution<Hypergraph::Label> ldist(0, static_cast<int>(num_classes - 1));
     std::vector<Hypergraph::Label> labels(num_vertices);
-    for (std::size_t v = 0; v < num_vertices; ++v) {
-        labels[v] = ldist(gen);
-    }
+    for (std::size_t v = 0; v < num_vertices; ++v) { labels[v] = ldist(gen); }
     return labels;
 }
 
-std::unique_ptr<Hypergraph> generate_hsbm(std::size_t num_vertices,
-                                          std::size_t num_edges,
-                                          std::size_t num_communities,
-                                          double p_intra,
-                                          double p_inter,
-                                          std::size_t min_edge_size,
-                                          std::size_t max_edge_size,
-                                          unsigned int seed) {
+std::unique_ptr<Hypergraph>
+generate_hsbm(std::size_t num_vertices, std::size_t num_edges, std::size_t num_communities, double p_intra, double p_inter, std::size_t min_edge_size, std::size_t max_edge_size, unsigned int seed) {
     if (num_vertices == 0) throw std::invalid_argument("num_vertices must be > 0");
     if (num_edges == 0) throw std::invalid_argument("num_edges must be > 0");
     if (num_communities == 0) throw std::invalid_argument("num_communities must be > 0");
@@ -287,17 +240,13 @@ std::unique_ptr<Hypergraph> generate_hsbm(std::size_t num_vertices,
 
     // Partition vertices as evenly as possible (deterministic mapping v % C)
     std::vector<std::vector<Hypergraph::VertexId>> comms(num_communities);
-    for (std::size_t v = 0; v < num_vertices; ++v) {
-        comms[v % num_communities].push_back(static_cast<Hypergraph::VertexId>(v));
-    }
+    for (std::size_t v = 0; v < num_vertices; ++v) { comms[v % num_communities].push_back(static_cast<Hypergraph::VertexId>(v)); }
 
     const std::size_t max_attempts = std::max<std::size_t>(num_edges * 20, 1000);
     std::size_t added = 0;
     std::size_t attempts = 0;
     while (added < num_edges) {
-        if (attempts++ > max_attempts) {
-            throw std::runtime_error("hSBM: too many rejections; try increasing p_intra/p_inter or adjusting size range");
-        }
+        if (attempts++ > max_attempts) { throw std::runtime_error("hSBM: too many rejections; try increasing p_intra/p_inter or adjusting size range"); }
         const std::size_t k = sdist(gen);
         auto verts = sample_unique_vertices(num_vertices, k, gen);
 
@@ -306,7 +255,10 @@ std::unique_ptr<Hypergraph> generate_hsbm(std::size_t num_vertices,
         const std::size_t base = comm_of(verts[0]);
         bool all_same = true;
         for (std::size_t i = 1; i < verts.size(); ++i) {
-            if (comm_of(verts[i]) != base) { all_same = false; break; }
+            if (comm_of(verts[i]) != base) {
+                all_same = false;
+                break;
+            }
         }
 
         const double r = pdist(gen);
@@ -320,7 +272,7 @@ std::unique_ptr<Hypergraph> generate_hsbm(std::size_t num_vertices,
     return hg;
 }
 
-} // namespace HypergraphGenerators
+} // namespace hypergraph_generators
 
 // ---------------------------
 // Serialization (binary)
@@ -329,13 +281,11 @@ std::unique_ptr<Hypergraph> generate_hsbm(std::size_t num_vertices,
 namespace {
 // 'HGR1' in little-endian for easy inspection
 constexpr std::uint32_t HGR_ASCII = 0x31475248; // 'H''G''R''1'
-}
+} // namespace
 
 void Hypergraph::save_to_file(const std::string& path) const {
     std::ofstream os(path, std::ios::binary);
-    if (!os) {
-        throw std::runtime_error("Failed to open file for writing: " + path);
-    }
+    if (!os) { throw std::runtime_error("Failed to open file for writing: " + path); }
 
     const std::uint32_t magic = HGR_ASCII; // 'HGR1'
     const std::uint32_t version = 1u;
@@ -365,47 +315,35 @@ void Hypergraph::save_to_file(const std::string& path) const {
         os.write(reinterpret_cast<const char*>(&lab), sizeof(lab));
     }
 
-    if (!os) {
-        throw std::runtime_error("Failed while writing file: " + path);
-    }
+    if (!os) { throw std::runtime_error("Failed while writing file: " + path); }
 }
 
 std::unique_ptr<Hypergraph> Hypergraph::load_from_file(const std::string& path) {
     std::ifstream is(path, std::ios::binary);
-    if (!is) {
-        throw std::runtime_error("Failed to open file for reading: " + path);
-    }
+    if (!is) { throw std::runtime_error("Failed to open file for reading: " + path); }
 
     std::uint32_t magic = 0, version = 0;
     is.read(reinterpret_cast<char*>(&magic), sizeof(magic));
     is.read(reinterpret_cast<char*>(&version), sizeof(version));
-    if (!is || magic != HGR_ASCII || version != 1u) {
-        throw std::runtime_error("Invalid hypergraph file (bad magic/version): " + path);
-    }
+    if (!is || magic != HGR_ASCII || version != 1u) { throw std::runtime_error("Invalid hypergraph file (bad magic/version): " + path); }
 
     std::uint64_t nv = 0, ne = 0;
     is.read(reinterpret_cast<char*>(&nv), sizeof(nv));
     is.read(reinterpret_cast<char*>(&ne), sizeof(ne));
-    if (!is || nv == 0) {
-        throw std::runtime_error("Invalid hypergraph file (bad header): " + path);
-    }
+    if (!is || nv == 0) { throw std::runtime_error("Invalid hypergraph file (bad header): " + path); }
 
     auto hg = std::make_unique<Hypergraph>(static_cast<std::size_t>(nv));
 
     for (std::uint64_t e = 0; e < ne; ++e) {
         std::uint64_t sz = 0;
         is.read(reinterpret_cast<char*>(&sz), sizeof(sz));
-        if (!is || sz == 0) {
-            throw std::runtime_error("Invalid hypergraph file (bad edge size): " + path);
-        }
+        if (!is || sz == 0) { throw std::runtime_error("Invalid hypergraph file (bad edge size): " + path); }
         std::vector<Hypergraph::VertexId> verts;
         verts.reserve(static_cast<std::size_t>(sz));
         for (std::uint64_t i = 0; i < sz; ++i) {
             std::uint64_t vv = 0;
             is.read(reinterpret_cast<char*>(&vv), sizeof(vv));
-            if (!is) {
-                throw std::runtime_error("Invalid hypergraph file (truncated vertices): " + path);
-            }
+            if (!is) { throw std::runtime_error("Invalid hypergraph file (truncated vertices): " + path); }
             verts.push_back(static_cast<Hypergraph::VertexId>(vv));
         }
         hg->add_hyperedge(verts);
@@ -419,9 +357,7 @@ std::unique_ptr<Hypergraph> Hypergraph::load_from_file(const std::string& path) 
         for (std::size_t v = 0; v < static_cast<std::size_t>(nv); ++v) {
             std::int32_t lab = 0;
             is.read(reinterpret_cast<char*>(&lab), sizeof(lab));
-            if (!is) {
-                throw std::runtime_error("Invalid hypergraph file (truncated labels): " + path);
-            }
+            if (!is) { throw std::runtime_error("Invalid hypergraph file (truncated labels): " + path); }
             labels[v] = static_cast<Label>(lab);
         }
         hg->set_labels(labels);

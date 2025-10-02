@@ -8,10 +8,10 @@
  * @brief Kokkos implementation of hypergraph label propagation
  */
 class LabelPropagationKokkos : public LabelPropagationAlgorithm {
-public:
+  public:
     using ExecutionSpace = Kokkos::DefaultExecutionSpace;
     using MemorySpace = typename ExecutionSpace::memory_space;
-    
+
     // Kokkos Views for GPU-friendly data structures
     using LabelView = Kokkos::View<Hypergraph::Label*, MemorySpace>;
     using VertexView = Kokkos::View<Hypergraph::VertexId*, MemorySpace>;
@@ -22,7 +22,7 @@ public:
     /**
      * @brief Constructor
      */
-    LabelPropagationKokkos();
+    LabelPropagationKokkos(const CLI::DeviceOptions& device);
 
     /**
      * @brief Destructor
@@ -44,18 +44,18 @@ public:
      *        Needs to be public so it can be captured in device lambdas.
      */
     struct KokkosHypergraph {
-        VertexView edge_vertices;     // Flattened vertex list
-        SizeView edge_offsets;        // Offsets into edge_vertices
-        EdgeView vertex_edges;        // Flattened edge list per vertex
-        SizeView vertex_offsets;      // Offsets into vertex_edges
-        SizeView edge_sizes;          // Size of each edge
+        VertexView edge_vertices; // Flattened vertex list
+        SizeView edge_offsets;    // Offsets into edge_vertices
+        EdgeView vertex_edges;    // Flattened edge list per vertex
+        SizeView vertex_offsets;  // Offsets into vertex_edges
+        SizeView edge_sizes;      // Size of each edge
         std::size_t num_vertices;
         std::size_t num_edges;
     };
 
-private:
+  private:
     bool kokkos_initialized_;
-    
+
     /**
      * @brief Convert hypergraph to Kokkos representation
      */

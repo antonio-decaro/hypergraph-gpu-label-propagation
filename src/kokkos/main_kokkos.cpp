@@ -1,7 +1,7 @@
-#include "label_propagation_kokkos.hpp"
 #include "argparse.hpp"
-#include <iostream>
+#include "label_propagation_kokkos.hpp"
 #include <chrono>
+#include <iostream>
 
 int main(int argc, char* argv[]) {
     std::cout << "Hypergraph Label Propagation - Kokkos Implementation\n";
@@ -29,7 +29,7 @@ int main(int argc, char* argv[]) {
         std::cout << "  Hyperedges: " << hypergraph->get_num_edges() << "\n";
 
         // Run Kokkos label propagation
-        LabelPropagationKokkos algorithm;
+        LabelPropagationKokkos algorithm(opts.device);
 
         auto start_time = std::chrono::high_resolution_clock::now();
         int iterations = algorithm.run(*hypergraph, opts.iterations, opts.tolerance);

@@ -1,31 +1,32 @@
 #pragma once
 
-#include <vector>
-#include <memory>
+#include "argparse.hpp"
 #include <cstddef>
+#include <memory>
 #include <string>
+#include <vector>
 
 /**
  * @brief Hypergraph data structure
- * 
+ *
  * A hypergraph H = (V, E) where V is a set of vertices and E is a set of hyperedges.
  * Each hyperedge can connect multiple vertices.
  */
 class Hypergraph {
-public:
+  public:
     using VertexId = std::size_t;
     using EdgeId = std::size_t;
     using Label = int;
 
     /**
-    * @brief Flatten hypergraph data for GPU processing
-    */
+     * @brief Flatten hypergraph data for GPU processing
+     */
     struct FlatHypergraph {
-        std::vector<Hypergraph::VertexId> edge_vertices;    // Flattened vertex list
-        std::vector<std::size_t> edge_offsets;              // Offsets into edge_vertices
-        std::vector<Hypergraph::EdgeId> vertex_edges;       // Flattened edge list per vertex
-        std::vector<std::size_t> vertex_offsets;            // Offsets into vertex_edges
-        std::vector<std::size_t> edge_sizes;                // Size of each edge
+        std::vector<Hypergraph::VertexId> edge_vertices; // Flattened vertex list
+        std::vector<std::size_t> edge_offsets;           // Offsets into edge_vertices
+        std::vector<Hypergraph::EdgeId> vertex_edges;    // Flattened edge list per vertex
+        std::vector<std::size_t> vertex_offsets;         // Offsets into vertex_edges
+        std::vector<std::size_t> edge_sizes;             // Size of each edge
         std::size_t num_vertices;
         std::size_t num_edges;
     };
@@ -105,21 +106,21 @@ public:
     void save_to_file(const std::string& path) const;
     static std::unique_ptr<Hypergraph> load_from_file(const std::string& path);
 
-private:
-
+  private:
     std::size_t num_vertices_;
-    std::vector<std::vector<VertexId>> hyperedges_;         // hyperedges_[e] = vertices in edge e
-    std::vector<std::vector<EdgeId>> incident_edges_;       // incident_edges_[v] = edges incident to vertex v
-    std::vector<Label> labels_;                             // labels_[v] = label of vertex v
-    std::vector<std::size_t> degrees_;                      // degrees_[v] = degree of vertex v
-    std::vector<std::size_t> edge_sizes_;                   // edge_sizes_[e] = size of edge e
+    std::vector<std::vector<VertexId>> hyperedges_;   // hyperedges_[e] = vertices in edge e
+    std::vector<std::vector<EdgeId>> incident_edges_; // incident_edges_[v] = edges incident to vertex v
+    std::vector<Label> labels_;                       // labels_[v] = label of vertex v
+    std::vector<std::size_t> degrees_;                // degrees_[v] = degree of vertex v
+    std::vector<std::size_t> edge_sizes_;             // edge_sizes_[e] = size of edge e
 };
 
 /**
  * @brief Abstract base class for label propagation algorithms
  */
 class LabelPropagationAlgorithm {
-public:
+  public:
+    explicit LabelPropagationAlgorithm(const CLI::DeviceOptions& device) : device_(device) {}
     virtual ~LabelPropagationAlgorithm() = default;
 
     /**
@@ -135,6 +136,9 @@ public:
      * @brief Get the name of the implementation
      */
     virtual std::string get_name() const = 0;
+
+  protected:
+    CLI::DeviceOptions device_;
 };
 
 /**
@@ -150,11 +154,7 @@ namespace hypergraph_generators {
  * @param max_edge_size Maximum edge cardinality (>=min_edge_size)
  * @param seed RNG seed (optional; if 0 uses nondeterministic seed)
  */
-std::unique_ptr<Hypergraph> generate_uniform(std::size_t num_vertices,
-                                             std::size_t num_edges,
-                                             std::size_t min_edge_size = 2,
-                                             std::size_t max_edge_size = 5,
-                                             unsigned int seed = 0);
+std::unique_ptr<Hypergraph> generate_uniform(std::size_t num_vertices, std::size_t num_edges, std::size_t min_edge_size = 2, std::size_t max_edge_size = 5, unsigned int seed = 0);
 
 /**
  * @brief Generate a random hypergraph where all edges have the same size.
@@ -163,10 +163,7 @@ std::unique_ptr<Hypergraph> generate_uniform(std::size_t num_vertices,
  * @param edge_size Fixed edge cardinality (>=2)
  * @param seed RNG seed (optional; if 0 uses nondeterministic seed)
  */
-std::unique_ptr<Hypergraph> generate_fixed_edge_size(std::size_t num_vertices,
-                                                     std::size_t num_edges,
-                                                     std::size_t edge_size,
-                                                     unsigned int seed = 0);
+std::unique_ptr<Hypergraph> generate_fixed_edge_size(std::size_t num_vertices, std::size_t num_edges, std::size_t edge_size, unsigned int seed = 0);
 
 
 /**
@@ -180,13 +177,8 @@ std::unique_ptr<Hypergraph> generate_fixed_edge_size(std::size_t num_vertices,
  * @param max_edge_size Maximum edge size
  * @param seed RNG seed (optional; if 0 uses nondeterministic seed)
  */
-std::unique_ptr<Hypergraph> generate_planted_partition(std::size_t num_vertices,
-                                                       std::size_t num_edges,
-                                                       std::size_t num_communities,
-                                                       double p_intra = 0.8,
-                                                       std::size_t min_edge_size = 2,
-                                                       std::size_t max_edge_size = 5,
-                                                       unsigned int seed = 0);
+std::unique_ptr<Hypergraph> generate_planted_partition(
+    std::size_t num_vertices, std::size_t num_edges, std::size_t num_communities, double p_intra = 0.8, std::size_t min_edge_size = 2, std::size_t max_edge_size = 5, unsigned int seed = 0);
 
 /**
  * @brief Generate a hypergraph Stochastic Block Model (hSBM) with two edge types:
@@ -196,14 +188,8 @@ std::unique_ptr<Hypergraph> generate_planted_partition(std::size_t num_vertices,
  *        Accept with probability p_intra if all vertices in the set belong to the same community,
  *        otherwise accept with probability p_inter. Repeat until num_edges edges are accepted.
  */
-std::unique_ptr<Hypergraph> generate_hsbm(std::size_t num_vertices,
-                                          std::size_t num_edges,
-                                          std::size_t num_communities,
-                                          double p_intra,
-                                          double p_inter,
-                                          std::size_t min_edge_size = 2,
-                                          std::size_t max_edge_size = 5,
-                                          unsigned int seed = 0);
+std::unique_ptr<Hypergraph> generate_hsbm(
+    std::size_t num_vertices, std::size_t num_edges, std::size_t num_communities, double p_intra, double p_inter, std::size_t min_edge_size = 2, std::size_t max_edge_size = 5, unsigned int seed = 0);
 
 /**
  * @brief Generate random labels for vertices in range [0, num_classes).
@@ -211,8 +197,6 @@ std::unique_ptr<Hypergraph> generate_hsbm(std::size_t num_vertices,
  * @param num_classes Number of distinct labels/classes (>=1)
  * @param seed RNG seed (optional; if 0 uses nondeterministic seed)
  */
-std::vector<Hypergraph::Label> generate_random_labels(std::size_t num_vertices,
-                                                      std::size_t num_classes,
-                                                      unsigned int seed = 0);
+std::vector<Hypergraph::Label> generate_random_labels(std::size_t num_vertices, std::size_t num_classes, unsigned int seed = 0);
 
-} // namespace HypergraphGenerators
+} // namespace hypergraph_generators

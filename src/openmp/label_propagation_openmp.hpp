@@ -8,12 +8,12 @@
  * @brief OpenMP implementation of hypergraph label propagation
  */
 class LabelPropagationOpenMP : public LabelPropagationAlgorithm {
-public:
+  public:
     /**
      * @brief Constructor
-     * @param num_threads Number of OpenMP threads to use
+     * @param device Device options (number of threads, etc.)
      */
-    explicit LabelPropagationOpenMP(int num_threads = 0);
+    explicit LabelPropagationOpenMP(const CLI::DeviceOptions& device);
 
     /**
      * @brief Run the label propagation algorithm using OpenMP
@@ -25,6 +25,6 @@ public:
      */
     std::string get_name() const override { return "OpenMP"; }
 
-private:
+  private:
     int num_threads_;
 };

@@ -1,7 +1,7 @@
-#include "label_propagation_openmp.hpp"
 #include "argparse.hpp"
-#include <iostream>
+#include "label_propagation_openmp.hpp"
 #include <chrono>
+#include <iostream>
 
 int main(int argc, char* argv[]) {
     std::cout << "Hypergraph Label Propagation - OpenMP Implementation\n";
@@ -30,7 +30,7 @@ int main(int argc, char* argv[]) {
     std::cout << std::endl;
 
     // Run OpenMP label propagation
-    LabelPropagationOpenMP algorithm(opts.threads);
+    LabelPropagationOpenMP algorithm(opts.device);
 
     auto start_time = std::chrono::high_resolution_clock::now();
     int iterations = algorithm.run(*hypergraph, opts.iterations, opts.tolerance);

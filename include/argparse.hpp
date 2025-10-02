@@ -3,13 +3,18 @@
 
 #pragma once
 
-#include <string>
 #include <cstddef>
 #include <memory>
+#include <string>
 
 class Hypergraph; // forward declaration
 
 namespace CLI {
+
+struct DeviceOptions {
+    size_t threads = 0; // 0 = auto
+    size_t workgroup_size = 256;
+};
 
 struct Options {
     // Problem size
@@ -19,28 +24,30 @@ struct Options {
     // Algorithm
     int iterations = 100;
     double tolerance = 1e-6;
-    int threads = 0; // 0 = auto
 
     // Generator
     std::string generator = "uniform"; // uniform|fixed|planted
     std::size_t min_edge_size = 2;
     std::size_t max_edge_size = 5;
-    std::size_t edge_size = 3; // for fixed
+    std::size_t edge_size = 3;   // for fixed
     std::size_t communities = 4; // for planted
-    double p_intra = 0.8; // for planted
-    double p_inter = 0.2; // for hSBM
-    unsigned int seed = 0; // 0 = nondeterministic
+    double p_intra = 0.8;        // for planted
+    double p_inter = 0.2;        // for hSBM
+    unsigned int seed = 0;       // 0 = nondeterministic
 
     // Labels
     std::size_t label_classes = 0; // 0 = leave defaults
     unsigned int label_seed = 0;   // 0 = nondeterministic
 
     // IO
-    std::string load_file;  // if non-empty, load hypergraph from this binary file
-    std::string save_file;  // if non-empty, save generated/loaded hypergraph to this binary file
+    std::string load_file; // if non-empty, load hypergraph from this binary file
+    std::string save_file; // if non-empty, save generated/loaded hypergraph to this binary file
 
     // Misc
     bool help = false;
+
+    // Device options (for GPU implementations)
+    DeviceOptions device;
 };
 
 // Parse CLI arguments (implemented in src/common/argparse.cpp)

@@ -2,11 +2,9 @@
 #include <algorithm>
 #include <iostream>
 
-LabelPropagationOpenMP::LabelPropagationOpenMP(int num_threads) 
-    : num_threads_(num_threads) {
-    if (num_threads_ <= 0) {
-        num_threads_ = omp_get_max_threads();
-    }
+LabelPropagationOpenMP::LabelPropagationOpenMP(CLI::DeviceOptions device) : LabelPropagationAlgorithm(device) {
+    num_threads_ = static_cast<int>(device_.threads);
+    if (num_threads_ <= 0) { num_threads_ = omp_get_max_threads(); }
     omp_set_num_threads(num_threads_);
 }
 
@@ -41,18 +39,14 @@ int LabelPropagationOpenMP::run(Hypergraph& hypergraph, int max_iterations, doub
         const Hypergraph::EdgeId* vertex_edges = flat.vertex_edges.data();
         const std::size_t* vertex_offsets = flat.vertex_offsets.data();
 
-        // Phase 1: update edge labels from incident vertex labels (unweighted counts)
-        #pragma omp target teams distribute parallel for \
-            map(to: vlabels[0:num_vertices], \
-                    edge_vertices[0:edge_vertices_size], \
-                    edge_offsets[0:edge_offsets_size]) \
-            map(tofrom: elabels[0:num_edges])
+// Phase 1: update edge labels from incident vertex labels (unweighted counts)
+#pragma omp target teams distribute parallel for map(to : vlabels[0 : num_vertices], edge_vertices[0 : edge_vertices_size], edge_offsets[0 : edge_offsets_size]) map(tofrom : elabels[0 : num_edges])
         for (std::size_t e = 0; e < num_edges; ++e) {
             float counts[MAX_LABELS];
             for (int i = 0; i < MAX_LABELS; ++i) counts[i] = 0.0f;
 
             const std::size_t v_begin = edge_offsets[e];
-            const std::size_t v_end   = edge_offsets[e + 1];
+            const std::size_t v_end = edge_offsets[e + 1];
             for (std::size_t j = v_begin; j < v_end; ++j) {
                 const auto u = edge_vertices[j];
                 const int lab = static_cast<int>(vlabels[u]);
@@ -72,17 +66,14 @@ int LabelPropagationOpenMP::run(Hypergraph& hypergraph, int max_iterations, doub
 
         // Phase 2: update vertex labels from incident edge labels; count changes
         std::size_t changes = 0;
-        #pragma omp target teams distribute parallel for reduction(+:changes) \
-            map(to: elabels[0:num_edges], \
-                    vertex_edges[0:vertex_edges_size], \
-                    vertex_offsets[0:vertex_offsets_size]) \
-            map(tofrom: vlabels[0:num_vertices])
+#pragma omp target teams distribute parallel for reduction(+ : changes) map(to : elabels[0 : num_edges], vertex_edges[0 : vertex_edges_size], vertex_offsets[0 : vertex_offsets_size])                 \
+    map(tofrom : vlabels[0 : num_vertices])
         for (std::size_t v = 0; v < num_vertices; ++v) {
             float counts[MAX_LABELS];
             for (int i = 0; i < MAX_LABELS; ++i) counts[i] = 0.0f;
 
             const std::size_t e_begin = vertex_offsets[v];
-            const std::size_t e_end   = vertex_offsets[v + 1];
+            const std::size_t e_end = vertex_offsets[v + 1];
             for (std::size_t i = e_begin; i < e_end; ++i) {
                 const auto e = vertex_edges[i];
                 const int lab = static_cast<int>(elabels[e]);
@@ -109,9 +100,7 @@ int LabelPropagationOpenMP::run(Hypergraph& hypergraph, int max_iterations, doub
             std::cout << "Converged after " << iteration + 1 << " iterations\n";
             break;
         }
-        if ((iteration + 1) % 10 == 0) {
-            std::cout << "Iteration " << iteration + 1 << " completed\n";
-        }
+        if ((iteration + 1) % 10 == 0) { std::cout << "Iteration " << iteration + 1 << " completed\n"; }
     }
 
     hypergraph.set_labels(vertex_labels);
