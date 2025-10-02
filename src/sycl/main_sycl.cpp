@@ -23,6 +23,7 @@ int main(int argc, char* argv[]) {
         std::unique_ptr<Hypergraph> hypergraph;
         try {
             hypergraph = CLI::make_hypergraph(opts);
+            hypergraph->finalize();
         } catch (const std::exception& ex) {
             std::cerr << "Error: " << ex.what() << "\n";
             return 2;

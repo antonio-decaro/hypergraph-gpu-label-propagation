@@ -44,6 +44,8 @@ void Hypergraph::set_labels(const std::vector<Label>& labels) {
 }
 
 Hypergraph::FlatHypergraph Hypergraph::flatten() const {
+    if (flat_cache_) { return *flat_cache_; } // Return cached version if available
+
     FlatHypergraph flat_hg;
     flat_hg.num_vertices = get_num_vertices();
     flat_hg.num_edges = get_num_edges();
@@ -68,6 +70,11 @@ Hypergraph::FlatHypergraph Hypergraph::flatten() const {
     }
 
     return flat_hg;
+}
+
+void Hypergraph::finalize() {
+    // Create and cache the flattened representation
+    flat_cache_ = std::make_shared<FlatHypergraph>(flatten());
 }
 
 // ---------------------------

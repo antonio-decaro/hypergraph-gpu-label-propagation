@@ -85,6 +85,11 @@ class Hypergraph {
     const std::vector<std::size_t>& get_edge_sizes() const { return edge_sizes_; }
 
     /**
+     * @brief Finalize the hypergraph (e.g., allocate memory for flattened representation)
+     */
+    void finalize();
+
+    /**
      * @brief Flatten hypergraph data for GPU processing
      */
     FlatHypergraph flatten() const;
@@ -113,6 +118,7 @@ class Hypergraph {
     std::vector<Label> labels_;                       // labels_[v] = label of vertex v
     std::vector<std::size_t> degrees_;                // degrees_[v] = degree of vertex v
     std::vector<std::size_t> edge_sizes_;             // edge_sizes_[e] = size of edge e
+    std::shared_ptr<FlatHypergraph> flat_cache_;      // Cached flattened representation
 };
 
 /**
