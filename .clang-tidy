@@ -29,13 +29,13 @@ CheckOptions:
   - key: readability-identifier-naming.ClassCase
     value: CamelCase
   - key: readability-identifier-naming.ClassMethodCase
-    value: camelBack
-  - key: readability-identifier-naming.EnumCase
     value: lower_case
+  - key: readability-identifier-naming.EnumCase
+    value: CamelCase
   - key: readability-identifier-naming.EnumConstantCase
     value: lower_case
   - key: readability-identifier-naming.FunctionCase
-    value: camelBack
+    value: lower_case
   - key: readability-identifier-naming.LocalVariableCase
     value: lower_case
   - key: readability-identifier-naming.LocalVariableIgnoredRegexp
@@ -48,11 +48,11 @@ CheckOptions:
     value: "[A-Z]"
   - key: readability-identifier-naming.ProtectedMemberCase
     value: lower_case
-  - key: readability-identifier-naming.ProtectedMemberPrefix
+  - key: readability-identifier-naming.ProtectedMemberPostfix
     value: _
   - key: readability-identifier-naming.PrivateMemberCase
     value: lower_case
-  - key: readability-identifier-naming.PrivateMemberPrefix
+  - key: readability-identifier-naming.PrivateMemberPostfix
     value: _
   - key: readability-identifier-naming.TemplateParameterCase
     value: CamelCase

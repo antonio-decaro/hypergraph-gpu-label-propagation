@@ -12,7 +12,7 @@
 namespace CLI {
 
 namespace {
-enum class GenKind { Uniform, Fixed, Erdos, Planted, Hsbm, Unknown };
+enum class GenKind { uniform, fixed, erdos, planted, hsbm, unknown };
 
 struct FieldDesc {
     const char* key;
@@ -23,35 +23,35 @@ struct GenSpec {
     std::vector<FieldDesc> fields; // order preserved for printing
 };
 
-static const GenSpec& get_spec(GenKind k) {
+const GenSpec& get_spec(GenKind k) {
     static const GenSpec uniform{"uniform", {{"min-edge-size", "min-edge-size"}, {"max-edge-size", "max-edge-size"}}};
     static const GenSpec fixed{"fixed", {{"edge-size", "edge-size"}}};
     static const GenSpec planted{"planted", {{"communities", "communities"}, {"p-intra", "p-intra"}, {"min-edge-size", "min-edge-size"}, {"max-edge-size", "max-edge-size"}}};
     static const GenSpec hsbm{"hsbm", {{"communities", "communities"}, {"p-intra", "p-intra"}, {"p-inter", "p-inter"}, {"min-edge-size", "min-edge-size"}, {"max-edge-size", "max-edge-size"}}};
     switch (k) {
-        case GenKind::Uniform: return uniform;
-        case GenKind::Fixed: return fixed;
-        case GenKind::Planted: return planted;
-        case GenKind::Hsbm: return hsbm;
+        case GenKind::uniform: return uniform;
+        case GenKind::fixed: return fixed;
+        case GenKind::planted: return planted;
+        case GenKind::hsbm: return hsbm;
         default: return uniform; // fallback
     }
 }
 
-static GenKind parse_kind(std::string s) {
+GenKind parse_kind(std::string s) {
     for (auto& c : s) c = static_cast<char>(::tolower(static_cast<unsigned char>(c)));
-    if (s == "uniform") return GenKind::Uniform;
-    if (s == "fixed") return GenKind::Fixed;
-    if (s == "planted") return GenKind::Planted;
-    if (s == "hsbm") return GenKind::Hsbm;
-    return GenKind::Unknown;
+    if (s == "uniform") return GenKind::uniform;
+    if (s == "fixed") return GenKind::fixed;
+    if (s == "planted") return GenKind::planted;
+    if (s == "hsbm") return GenKind::hsbm;
+    return GenKind::unknown;
 }
 
-static const std::vector<std::string>& all_gen_keys() {
-    static const std::vector<std::string> keys = {"min-edge-size", "max-edge-size", "edge-size", "communities", "p-intra", "p-inter"};
+const std::vector<std::string>& all_gen_keys() {
+    const std::vector<std::string> keys = {"min-edge-size", "max-edge-size", "edge-size", "communities", "p-intra", "p-inter"};
     return keys;
 }
 
-static std::string field_value(const Options& o, const std::string& key) {
+std::string field_value(const Options& o, const std::string& key) {
     if (key == "min-edge-size") return std::to_string(o.min_edge_size);
     if (key == "max-edge-size") return std::to_string(o.max_edge_size);
     if (key == "edge-size") return std::to_string(o.edge_size);
@@ -61,7 +61,7 @@ static std::string field_value(const Options& o, const std::string& key) {
     return "";
 }
 
-static void warn_irrelevant_params(const cxxopts::ParseResult& res, GenKind kind, const std::function<void(const std::string&)>& warn) {
+void warn_irrelevant_params(const cxxopts::ParseResult& res, GenKind kind, const std::function<void(const std::string&)>& warn) {
     std::unordered_set<std::string> relevant;
     for (const auto& f : get_spec(kind).fields) relevant.insert(f.key);
     for (const auto& k : all_gen_keys()) {
@@ -69,9 +69,9 @@ static void warn_irrelevant_params(const cxxopts::ParseResult& res, GenKind kind
     }
 }
 
-static bool validate_generator_params(GenKind kind, const Options& o, std::string& err) {
+bool validate_generator_params(GenKind kind, const Options& o, std::string& err) {
     switch (kind) {
-        case GenKind::Fixed:
+        case GenKind::fixed:
             if (o.edge_size < 2) {
                 err = "--edge-size must be >= 2 for fixed generator.";
                 return false;
@@ -81,9 +81,9 @@ static bool validate_generator_params(GenKind kind, const Options& o, std::strin
                 return false;
             }
             return true;
-        case GenKind::Uniform:
-        case GenKind::Planted:
-        case GenKind::Hsbm:
+        case GenKind::uniform:
+        case GenKind::planted:
+        case GenKind::hsbm:
             if (o.min_edge_size < 2) {
                 err = "--min-edge-size must be >= 2.";
                 return false;
@@ -92,7 +92,7 @@ static bool validate_generator_params(GenKind kind, const Options& o, std::strin
                 err = "--max-edge-size must be >= --min-edge-size.";
                 return false;
             }
-            if (kind == GenKind::Planted || kind == GenKind::Hsbm) {
+            if (kind == GenKind::planted || kind == GenKind::hsbm) {
                 if (o.communities == 0) {
                     err = "--communities must be > 0.";
                     return false;
@@ -106,7 +106,7 @@ static bool validate_generator_params(GenKind kind, const Options& o, std::strin
                     return false;
                 }
             }
-            if (kind == GenKind::Hsbm) {
+            if (kind == GenKind::hsbm) {
                 if (o.p_inter < 0.0 || o.p_inter > 1.0) {
                     err = "--p-inter must be within [0,1].";
                     return false;
@@ -214,7 +214,7 @@ Options parse_args(int argc, char** argv) {
 
     // Validate generator value early for better UX
     GenKind kind = parse_kind(out.generator);
-    if (kind == GenKind::Unknown) {
+    if (kind == GenKind::unknown) {
         std::cerr << "Error: Unknown generator: '" << out.generator << "' (use uniform|fixed|planted|hsbm).\n";
         print_help_with_generators();
         out.help = true;
