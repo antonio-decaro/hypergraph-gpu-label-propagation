@@ -58,10 +58,10 @@ int LabelPropagationSYCL::run(Hypergraph& hypergraph, int max_iterations, double
 }
 
 bool LabelPropagationSYCL::run_iteration_sycl(const DeviceFlatHypergraph& flat_hg,
-                                             Hypergraph::Label* vertex_labels,
-                                             Hypergraph::Label* edge_labels,
-                                             std::size_t* changes,
-                                             double tolerance) {
+                                              Hypergraph::Label* vertex_labels,
+                                              Hypergraph::Label* edge_labels,
+                                              std::size_t* changes,
+                                              double tolerance) {
     *changes = 0;
 
     constexpr int MAX_LABELS = 10;  // Adjust based on expected label range
