@@ -46,7 +46,7 @@ int LabelPropagationOpenMP::run(Hypergraph& hypergraph, int max_iterations, doub
         // Phase 1: update edge labels from incident vertex labels (team-shared scratch sized MAX_TEAM_SIZE*MAX_LABELS)
         {
             const std::size_t num_teams = (num_edges + static_cast<std::size_t>(wgs) - 1) / static_cast<std::size_t>(wgs);
-#pragma omp target teams num_teams(num_teams) thread_limit(WGS) map(to : vlabels[0 : num_vertices], edge_vertices[0 : edge_vertices_size], edge_offsets[0 : edge_offsets_size])                        \
+#pragma omp target teams num_teams(num_teams) thread_limit(wgs) map(to : vlabels[0 : num_vertices], edge_vertices[0 : edge_vertices_size], edge_offsets[0 : edge_offsets_size])                        \
     map(tofrom : elabels[0 : num_edges])
             {
                 float scratch[MAX_TEAM_SIZE * MAX_LABELS];
@@ -86,7 +86,7 @@ int LabelPropagationOpenMP::run(Hypergraph& hypergraph, int max_iterations, doub
         std::size_t changes = 0;
         {
             const std::size_t num_teams = (num_vertices + static_cast<std::size_t>(wgs) - 1) / static_cast<std::size_t>(wgs);
-#pragma omp target teams num_teams(num_teams) thread_limit(WGS) map(to : elabels[0 : num_edges], vertex_edges[0 : vertex_edges_size], vertex_offsets[0 : vertex_offsets_size])                         \
+#pragma omp target teams num_teams(num_teams) thread_limit(wgs) map(to : elabels[0 : num_edges], vertex_edges[0 : vertex_edges_size], vertex_offsets[0 : vertex_offsets_size])                         \
     map(tofrom : vlabels[0 : num_vertices], changes)
             {
                 float scratch[MAX_TEAM_SIZE * MAX_LABELS];
