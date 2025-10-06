@@ -32,9 +32,9 @@ int LabelPropagationOpenMP::run(Hypergraph& hypergraph, int max_iterations, doub
 
     int iteration = 0;
     // Workgroup size used for GPU-style teams threading and scratch sizing
-    constexpr int MAX_TEAM_SIZE = 512; // preallocate for maximum team members
-    int WGS = device_.workgroup_size > 0 ? static_cast<int>(device_.workgroup_size) : 256;
-    if (WGS > MAX_TEAM_SIZE) WGS = MAX_TEAM_SIZE;
+    constexpr int MAX_TEAM_SIZE = 1024; // preallocate for maximum team members
+    int wgs = device_.workgroup_size > 0 ? static_cast<int>(device_.workgroup_size) : 256;
+    wgs = std::min(wgs, MAX_TEAM_SIZE);
     for (iteration = 0; iteration < max_iterations; ++iteration) {
         Hypergraph::Label* vlabels = vertex_labels.data();
         Hypergraph::Label* elabels = edge_labels.data();
@@ -45,9 +45,8 @@ int LabelPropagationOpenMP::run(Hypergraph& hypergraph, int max_iterations, doub
 
         // Phase 1: update edge labels from incident vertex labels (team-shared scratch sized MAX_TEAM_SIZE*MAX_LABELS)
         {
-            const std::size_t num_teams = (num_edges + static_cast<std::size_t>(WGS) - 1) / static_cast<std::size_t>(WGS);
-#pragma omp target teams num_teams(num_teams) thread_limit(WGS) \
-    map(to : vlabels[0 : num_vertices], edge_vertices[0 : edge_vertices_size], edge_offsets[0 : edge_offsets_size]) \
+            const std::size_t num_teams = (num_edges + static_cast<std::size_t>(wgs) - 1) / static_cast<std::size_t>(wgs);
+#pragma omp target teams num_teams(num_teams) thread_limit(WGS) map(to : vlabels[0 : num_vertices], edge_vertices[0 : edge_vertices_size], edge_offsets[0 : edge_offsets_size])                        \
     map(tofrom : elabels[0 : num_edges])
             {
                 float scratch[MAX_TEAM_SIZE * MAX_LABELS];
@@ -55,7 +54,7 @@ int LabelPropagationOpenMP::run(Hypergraph& hypergraph, int max_iterations, doub
 #pragma omp parallel
                 {
                     const int tid = omp_get_thread_num();
-                    const std::size_t e = static_cast<std::size_t>(omp_get_team_num()) * static_cast<std::size_t>(WGS) + static_cast<std::size_t>(tid);
+                    const std::size_t e = (static_cast<std::size_t>(omp_get_team_num()) * static_cast<std::size_t>(wgs)) + static_cast<std::size_t>(tid);
                     if (e < num_edges) {
                         float* counts = &scratch[static_cast<std::size_t>(tid) * MAX_LABELS];
                         for (int i = 0; i < MAX_LABELS; ++i) counts[i] = 0.0f;
@@ -86,9 +85,8 @@ int LabelPropagationOpenMP::run(Hypergraph& hypergraph, int max_iterations, doub
         // Phase 2: update vertex labels from incident edge labels; count changes (team-shared scratch)
         std::size_t changes = 0;
         {
-            const std::size_t num_teams = (num_vertices + static_cast<std::size_t>(WGS) - 1) / static_cast<std::size_t>(WGS);
-#pragma omp target teams num_teams(num_teams) thread_limit(WGS) \
-    map(to : elabels[0 : num_edges], vertex_edges[0 : vertex_edges_size], vertex_offsets[0 : vertex_offsets_size]) \
+            const std::size_t num_teams = (num_vertices + static_cast<std::size_t>(wgs) - 1) / static_cast<std::size_t>(wgs);
+#pragma omp target teams num_teams(num_teams) thread_limit(WGS) map(to : elabels[0 : num_edges], vertex_edges[0 : vertex_edges_size], vertex_offsets[0 : vertex_offsets_size])                         \
     map(tofrom : vlabels[0 : num_vertices], changes)
             {
                 float scratch[MAX_TEAM_SIZE * MAX_LABELS];
@@ -96,7 +94,7 @@ int LabelPropagationOpenMP::run(Hypergraph& hypergraph, int max_iterations, doub
 #pragma omp parallel
                 {
                     const int tid = omp_get_thread_num();
-                    const std::size_t v = static_cast<std::size_t>(omp_get_team_num()) * static_cast<std::size_t>(WGS) + static_cast<std::size_t>(tid);
+                    const std::size_t v = (static_cast<std::size_t>(omp_get_team_num()) * static_cast<std::size_t>(wgs)) + static_cast<std::size_t>(tid);
                     if (v < num_vertices) {
                         float* counts = &scratch[static_cast<std::size_t>(tid) * MAX_LABELS];
                         for (int i = 0; i < MAX_LABELS; ++i) counts[i] = 0.0f;
