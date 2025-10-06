@@ -40,63 +40,118 @@ int LabelPropagationKokkos::run(Hypergraph& hypergraph, int max_iterations, doub
     int iteration = 0;
     constexpr int MAX_LABELS = 10; // keep consistent with SYCL/OpenMP
     for (iteration = 0; iteration < max_iterations; ++iteration) {
-        // Phase 1: update edge labels from incident vertex labels (unweighted counts)
-        Kokkos::parallel_for(
-            "edge_update", kokkos_hg.num_edges, KOKKOS_LAMBDA(const std::size_t e) {
-                float counts[MAX_LABELS];
-                for (int i = 0; i < MAX_LABELS; ++i) counts[i] = 0.0f;
+        // Use team scratch (shared) memory to hold per-thread label counts
+        using ExecSpace = ExecutionSpace;
+        using TeamPolicy = Kokkos::TeamPolicy<ExecSpace>;
+        using Member = TeamPolicy::member_type;
+        using ScratchSpace = typename ExecSpace::scratch_memory_space;
 
-                const std::size_t v_begin = kokkos_hg.edge_offsets(e);
-                const std::size_t v_end = kokkos_hg.edge_offsets(e + 1);
-                for (std::size_t j = v_begin; j < v_end; ++j) {
-                    const auto u = kokkos_hg.edge_vertices(j);
-                    const int lab = static_cast<int>(vertex_labels(u));
-                    if (lab >= 0 && lab < MAX_LABELS) counts[lab] += 1.0f;
-                }
+        const int team_size = device_.workgroup_size > 0 ? static_cast<int>(device_.workgroup_size) : 256;
 
-                int best = edge_labels(e);
-                float best_w = -1.0f;
-                for (int lab = 0; lab < MAX_LABELS; ++lab) {
-                    if (counts[lab] > best_w) {
-                        best_w = counts[lab];
-                        best = lab;
-                    }
-                }
-                edge_labels(e) = static_cast<Hypergraph::Label>(best);
-            });
+        // -----------------------------
+        // Phase 1: update edge labels
+        // -----------------------------
+        {
+            const std::size_t league_size = (kokkos_hg.num_edges + team_size - 1) / team_size;
+            TeamPolicy policy(static_cast<int>(league_size), team_size);
+            const std::size_t shmem_bytes = Kokkos::View<float*, ScratchSpace>::shmem_size(MAX_LABELS * team_size);
+            policy.set_scratch_size(0, Kokkos::PerTeam(shmem_bytes));
 
-        // Phase 2: update vertex labels from incident edge labels and count changes
+            Kokkos::parallel_for(
+                "edge_update_shared",
+                policy,
+                KOKKOS_LAMBDA(const Member& team) {
+                    // Allocate per-team scratch buffer sized for (team_size x MAX_LABELS)
+                    Kokkos::View<float*, ScratchSpace, Kokkos::MemoryUnmanaged> label_weights(team.team_scratch(0), MAX_LABELS * team.team_size());
+
+                    // Each thread in the team processes one edge
+                    Kokkos::parallel_for(Kokkos::TeamThreadRange(team, team.team_size()), [&](const int tid) {
+                        const std::size_t e = static_cast<std::size_t>(team.league_rank()) * static_cast<std::size_t>(team.team_size()) + static_cast<std::size_t>(tid);
+                        if (e >= kokkos_hg.num_edges) return;
+
+                        // Zero per-thread label counters in shared memory
+                        const int base = tid * MAX_LABELS;
+                        for (int i = 0; i < MAX_LABELS; ++i) { label_weights(base + i) = 0.0f; }
+
+                        const std::size_t v_begin = kokkos_hg.edge_offsets(e);
+                        const std::size_t v_end = kokkos_hg.edge_offsets(e + 1);
+                        for (std::size_t j = v_begin; j < v_end; ++j) {
+                            const auto u = kokkos_hg.edge_vertices(j);
+                            const int lab = static_cast<int>(vertex_labels(u));
+                            if (lab >= 0 && lab < MAX_LABELS) { label_weights(base + lab) += 1.0f; }
+                        }
+
+                        int best = edge_labels(e);
+                        float best_w = -1.0f;
+                        for (int lab = 0; lab < MAX_LABELS; ++lab) {
+                            const float w = label_weights(base + lab);
+                            if (w > best_w) {
+                                best_w = w;
+                                best = lab;
+                            }
+                        }
+                        edge_labels(e) = static_cast<Hypergraph::Label>(best);
+                    });
+                });
+        }
+
+        // ---------------------------------------
+        // Phase 2: update vertex labels + reduce
+        // ---------------------------------------
         std::size_t changes = 0;
-        Kokkos::parallel_reduce(
-            "vertex_update",
-            kokkos_hg.num_vertices,
-            KOKKOS_LAMBDA(const std::size_t v, std::size_t& local_changes) {
-                float counts[MAX_LABELS];
-                for (int i = 0; i < MAX_LABELS; ++i) counts[i] = 0.0f;
+        {
+            const std::size_t league_size = (kokkos_hg.num_vertices + team_size - 1) / team_size;
+            TeamPolicy policy(static_cast<int>(league_size), team_size);
+            const std::size_t shmem_bytes = Kokkos::View<float*, ScratchSpace>::shmem_size(MAX_LABELS * team_size);
+            policy.set_scratch_size(0, Kokkos::PerTeam(shmem_bytes));
 
-                const std::size_t e_begin = kokkos_hg.vertex_offsets(v);
-                const std::size_t e_end = kokkos_hg.vertex_offsets(v + 1);
-                for (std::size_t i = e_begin; i < e_end; ++i) {
-                    const auto e = kokkos_hg.vertex_edges(i);
-                    const int lab = static_cast<int>(edge_labels(e));
-                    if (lab >= 0 && lab < MAX_LABELS) counts[lab] += 1.0f;
-                }
+            Kokkos::parallel_reduce(
+                "vertex_update_shared",
+                policy,
+                KOKKOS_LAMBDA(const Member& team, std::size_t& team_changes) {
+                    Kokkos::View<float*, ScratchSpace, Kokkos::MemoryUnmanaged> label_weights(team.team_scratch(0), MAX_LABELS * team.team_size());
 
-                int best = vertex_labels(v);
-                float best_w = -1.0f;
-                for (int lab = 0; lab < MAX_LABELS; ++lab) {
-                    if (counts[lab] > best_w) {
-                        best_w = counts[lab];
-                        best = lab;
-                    }
-                }
+                    // Each thread processes one vertex; accumulate changes via TeamThreadRange reduction
+                    std::size_t local_changes = 0;
+                    Kokkos::parallel_reduce(
+                        Kokkos::TeamThreadRange(team, team.team_size()),
+                        [&](const int tid, std::size_t& lsum) {
+                            const std::size_t v = static_cast<std::size_t>(team.league_rank()) * static_cast<std::size_t>(team.team_size()) + static_cast<std::size_t>(tid);
+                            if (v >= kokkos_hg.num_vertices) return;
 
-                if (vertex_labels(v) != static_cast<Hypergraph::Label>(best)) {
-                    vertex_labels(v) = static_cast<Hypergraph::Label>(best);
-                    local_changes += 1;
-                }
-            },
-            changes);
+                            const int base = tid * MAX_LABELS;
+                            for (int i = 0; i < MAX_LABELS; ++i) { label_weights(base + i) = 0.0f; }
+
+                            const std::size_t e_begin = kokkos_hg.vertex_offsets(v);
+                            const std::size_t e_end = kokkos_hg.vertex_offsets(v + 1);
+                            for (std::size_t i = e_begin; i < e_end; ++i) {
+                                const auto e = kokkos_hg.vertex_edges(i);
+                                const int lab = static_cast<int>(edge_labels(e));
+                                if (lab >= 0 && lab < MAX_LABELS) { label_weights(base + lab) += 1.0f; }
+                            }
+
+                            int best = vertex_labels(v);
+                            float best_w = -1.0f;
+                            for (int lab = 0; lab < MAX_LABELS; ++lab) {
+                                const float w = label_weights(base + lab);
+                                if (w > best_w) {
+                                    best_w = w;
+                                    best = lab;
+                                }
+                            }
+
+                            if (vertex_labels(v) != static_cast<Hypergraph::Label>(best)) {
+                                vertex_labels(v) = static_cast<Hypergraph::Label>(best);
+                                lsum += 1;
+                            }
+                        },
+                        local_changes);
+
+                    // Contribute this team's changes to the global reduction
+                    team_changes += local_changes;
+                },
+                changes);
+        }
 
         const double change_ratio = static_cast<double>(changes) / static_cast<double>(kokkos_hg.num_vertices);
         if (change_ratio < tolerance) {
