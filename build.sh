@@ -132,5 +132,7 @@ if [ ${#pids[@]} -gt 0 ]; then
   if [ $wait_status -ne 0 ]; then
     echo "One or more build processes failed." >&2
     exit 1
+  else 
+    echo "All build processes completed successfully."
   fi
 fi
