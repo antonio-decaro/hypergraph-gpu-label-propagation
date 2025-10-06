@@ -60,6 +60,11 @@ done
 
 mkdir -p "$SCRIPT_DIR/build/"
 
+# array to hold background process PIDs
+declare -a pids=()
+# associative array to map pid -> build name for clearer failure messages
+declare -A pid_name_map=()
+
 if [ -z "$sycl_compiler" ] && [ -z "$openmp_compiler" ] && [ -z "$kokkos_compiler" ]; then
   echo "Error: At least one of --sycl, --openmp, or --kokkos must be specified."
   help
@@ -80,7 +85,9 @@ if [[ -n "$sycl_compiler" ]]; then
     cmake --build "$SCRIPT_DIR/build/sycl/" -t label_propagation_sycl -j 8 > "$SCRIPT_DIR/build/cmake_sycl_build.log" 2>&1 && \
     cp "$SCRIPT_DIR/build/sycl/label_propagation_sycl" "$SCRIPT_DIR/build/label_propagation_sycl"
   ) &
-  pids+=("$!")
+  pid=$!
+  pids+=("$pid")
+  pid_name_map["$pid"]="SYCL"
 fi
 
 # if openmp compiler is specified
@@ -91,7 +98,9 @@ if [[ -n "$openmp_compiler" ]]; then
     cmake --build "$SCRIPT_DIR/build/openmp/" -t label_propagation_openmp -j 8 > "$SCRIPT_DIR/build/cmake_openmp_build.log" 2>&1 && \
     cp "$SCRIPT_DIR/build/openmp/label_propagation_openmp" "$SCRIPT_DIR/build/label_propagation_openmp"
   ) &
-  pids+=("$!")
+  pid=$!
+  pids+=("$pid")
+  pid_name_map["$pid"]="OpenMP"
 fi
 
 # if kokkos compiler is specified
@@ -102,7 +111,9 @@ if [[ -n "$kokkos_compiler" ]]; then
     cmake --build "$SCRIPT_DIR/build/kokkos/" -t label_propagation_kokkos -j 8 > "$SCRIPT_DIR/build/cmake_kokkos_build.log" 2>&1 && \
     cp "$SCRIPT_DIR/build/kokkos/label_propagation_kokkos" "$SCRIPT_DIR/build/label_propagation_kokkos"
   ) &
-  pids+=("$!")
+  pid=$!
+  pids+=("$pid")
+  pid_name_map["$pid"]="Kokkos"
 fi
 
 # wait for background build processes to finish
@@ -114,7 +125,8 @@ if [ ${#pids[@]} -gt 0 ]; then
       : # successful
     else
       wait_status=1
-      echo "A build process (PID $pid) failed." >&2
+      build_name="${pid_name_map[$pid]:-unknown}"
+      echo "A build process (PID $pid) for '$build_name' failed." >&2
     fi
   done
   if [ $wait_status -ne 0 ]; then
