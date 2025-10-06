@@ -101,7 +101,7 @@ bool LabelPropagationSYCL::run_iteration_sycl(const DeviceFlatHypergraph& flat_h
 
                 // Find label with maximum weight
                 Hypergraph::Label best_label = edge_labels[e];
-                float max_weight = 0.0f;
+                float max_weight = -1.0f;
 
                 for (int label = 0; label < MAX_LABELS; ++label) {
                     if (label_weights[(lid * MAX_LABELS) + label] > max_weight) {
@@ -145,8 +145,8 @@ bool LabelPropagationSYCL::run_iteration_sycl(const DeviceFlatHypergraph& flat_h
                     }
 
                     // Find label with maximum weight
-                    Hypergraph::Label best_label = edge_labels[v];
-                    float max_weight = 0.0f;
+                    Hypergraph::Label best_label = vertex_labels[v];
+                    float max_weight = -1.0f;
 
                     for (int label = 0; label < MAX_LABELS; ++label) {
                         if (label_weights[(lid * MAX_LABELS) + label] > max_weight) {
