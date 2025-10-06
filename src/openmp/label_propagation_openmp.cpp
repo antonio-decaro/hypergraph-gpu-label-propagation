@@ -2,7 +2,7 @@
 #include <algorithm>
 #include <iostream>
 
-LabelPropagationOpenMP::LabelPropagationOpenMP(CLI::DeviceOptions device) : LabelPropagationAlgorithm(device) {
+LabelPropagationOpenMP::LabelPropagationOpenMP(const CLI::DeviceOptions& device) : LabelPropagationAlgorithm(device) {
     num_threads_ = static_cast<int>(device_.threads);
     if (num_threads_ <= 0) { num_threads_ = omp_get_max_threads(); }
     omp_set_num_threads(num_threads_);

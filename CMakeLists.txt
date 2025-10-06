@@ -11,6 +11,9 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Global include directory for public headers
 include_directories(include)
 
+# Resolve cxxopts via bundled module
+include(cmake/FetchCXXOPTS.cmake)
+
 # Build common library
 add_library(hypergraph_common STATIC
     src/common/hypergraph.cpp
@@ -30,7 +33,7 @@ else()
 endif()
 
 # Find and configure different programming models
-set(BUILD_OPENMP ON CACHE BOOL "Build OpenMP implementation")
+set(BUILD_OPENMP OFF CACHE BOOL "Build OpenMP implementation")
 set(BUILD_SYCL OFF CACHE BOOL "Build SYCL implementation")  
 set(BUILD_KOKKOS OFF CACHE BOOL "Build Kokkos implementation")
 
@@ -42,9 +45,6 @@ set(OFFLOAD_TARGET "none" CACHE STRING "Offload target architecture (none, sm_70
 # OpenMP target offload configuration (module)
 include(cmake/OpenMPOffload.cmake)
 include(cmake/SYCLOffload.cmake)
-
-# Resolve cxxopts via bundled module
-include(cmake/FetchCXXOPTS.cmake)
 
 # Build OpenMP implementation
 if(BUILD_OPENMP)
