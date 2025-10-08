@@ -8,6 +8,8 @@ DATASETS=(
     "data/cocitation/citeseer"
     "data/cocitation/cora"
     "data/cocitation/pubmed"
+    "data_vilLain/VilLain/data/trivago"
+    "data_vilLain/VilLain/data/amazon"
 )
 
 for DATA_DIR in "${DATASETS[@]}"; do
