@@ -64,3 +64,6 @@ Makefile
 # Logs and databases
 *.log
 data/*.json
+
+# Python
+scripts/**/
