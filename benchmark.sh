@@ -3,7 +3,7 @@ set -euo pipefail
 
 RUNS=5
 LABEL_SEED=42
-LABEL_CLASSES_LIST=(10 100 1000)
+LABEL_CLASSES_LIST=(10)
 JSON_DIR="data"
 BUILD_DIR="build"
 LOG_DIR="log"

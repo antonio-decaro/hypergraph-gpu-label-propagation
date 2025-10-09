@@ -70,8 +70,7 @@ PerformanceMeasurer LabelPropagationOpenMP::run(Hypergraph& hypergraph, int max_
     map(tofrom : elabels[0 : num_edges])
             {
                 float scratch[MAX_TEAM_SIZE * MAX_LABELS_CAP];
-#pragma omp allocate(scratch) allocator(omp_pteam_mem_alloc)
-#pragma omp parallel
+#pragma omp parallel shared(scratch)
                 {
                     const int tid = omp_get_thread_num();
                     const std::size_t e = (static_cast<std::size_t>(omp_get_team_num()) * static_cast<std::size_t>(wgs)) + static_cast<std::size_t>(tid);
@@ -110,8 +109,7 @@ PerformanceMeasurer LabelPropagationOpenMP::run(Hypergraph& hypergraph, int max_
     map(tofrom : vlabels[0 : num_vertices], changes)
             {
                 float scratch[MAX_TEAM_SIZE * MAX_LABELS_CAP];
-#pragma omp allocate(scratch) allocator(omp_pteam_mem_alloc)
-#pragma omp parallel
+#pragma omp parallel shared(scratch)
                 {
                     const int tid = omp_get_thread_num();
                     const std::size_t v = (static_cast<std::size_t>(omp_get_team_num()) * static_cast<std::size_t>(wgs)) + static_cast<std::size_t>(tid);
