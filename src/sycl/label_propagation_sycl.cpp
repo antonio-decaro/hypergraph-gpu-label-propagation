@@ -29,6 +29,9 @@ PerformanceMeasurer LabelPropagationSYCL::run(Hypergraph& hypergraph, int max_it
         return perf;
     }
 
+    const int max_labels = static_cast<int>(device_.max_labels);
+    if (max_labels <= 0) { throw std::invalid_argument("device.max_labels must be > 0"); }
+
     DeviceFlatHypergraph hg{};
     size_t* changes = nullptr;
     Hypergraph::Label* vertex_labels = nullptr;
@@ -54,7 +57,7 @@ PerformanceMeasurer LabelPropagationSYCL::run(Hypergraph& hypergraph, int max_it
         int iterations_completed = 0;
         bool converged = false;
         for (int iteration = 0; iteration < max_iterations; ++iteration) {
-            bool iteration_converged = run_iteration_sycl(hg, vertex_labels, edge_labels, changes, tolerance);
+            bool iteration_converged = run_iteration_sycl(hg, vertex_labels, edge_labels, changes, max_labels, tolerance);
 
             if (iteration_converged) {
                 std::cout << "Converged after " << iteration + 1 << " iterations\n";
@@ -97,10 +100,15 @@ PerformanceMeasurer LabelPropagationSYCL::run(Hypergraph& hypergraph, int max_it
     }
 }
 
-bool LabelPropagationSYCL::run_iteration_sycl(const DeviceFlatHypergraph& flat_hg, Hypergraph::Label* vertex_labels, Hypergraph::Label* edge_labels, std::size_t* changes, double tolerance) {
+bool LabelPropagationSYCL::run_iteration_sycl(const DeviceFlatHypergraph& flat_hg,
+    Hypergraph::Label* vertex_labels,
+    Hypergraph::Label* edge_labels,
+    std::size_t* changes,
+    int max_labels,
+    double tolerance) {
     size_t workgroup_size = device_.workgroup_size;
 
-    constexpr int MAX_LABELS = 10; // Adjust based on expected label range
+    if (max_labels <= 0) { throw std::invalid_argument("device.max_labels must be > 0"); }
 
     // Submit label propagation kernel
     try {
@@ -115,7 +123,7 @@ bool LabelPropagationSYCL::run_iteration_sycl(const DeviceFlatHypergraph& flat_h
 
         // First update edge labels based on vertex labels
         auto e = queue_.submit([&](sycl::handler& h) {
-            sycl::local_accessor<float, 1> label_weights(MAX_LABELS * workgroup_size, h);
+            sycl::local_accessor<float, 1> label_weights(static_cast<std::size_t>(max_labels) * workgroup_size, h);
             h.parallel_for(sycl::nd_range<1>(global_size, workgroup_size), [=](sycl::nd_item<1> idx) {
                 const std::size_t e = idx.get_global_id(0);
                 const std::size_t lid = idx.get_local_linear_id();
@@ -125,7 +133,7 @@ bool LabelPropagationSYCL::run_iteration_sycl(const DeviceFlatHypergraph& flat_h
                 if (e >= flat_hg.num_edges) return;
 
 #pragma unroll
-                for (int i = 0; i < MAX_LABELS; ++i) { label_weights[(lid * MAX_LABELS) + i] = 0.0f; }
+                for (int i = 0; i < max_labels; ++i) { label_weights[(lid * max_labels) + i] = 0.0f; }
 
                 // Get incident vertices for edge_id
                 const std::size_t vertex_start = edge_offsets[e];
@@ -138,16 +146,17 @@ bool LabelPropagationSYCL::run_iteration_sycl(const DeviceFlatHypergraph& flat_h
                     std::size_t vertices_start = edge_offsets[e];
 
                     auto label = vertex_labels[vertex];
-                    label_weights[(lid * MAX_LABELS) + label] += 1.0f;
+                    if (label >= 0 && label < max_labels) { label_weights[(lid * max_labels) + label] += 1.0f; }
                 }
 
                 // Find label with maximum weight
                 Hypergraph::Label best_label = edge_labels[e];
                 float max_weight = -1.0f;
 
-                for (int label = 0; label < MAX_LABELS; ++label) {
-                    if (label_weights[(lid * MAX_LABELS) + label] > max_weight) {
-                        max_weight = label_weights[(lid * MAX_LABELS) + label];
+                for (int label = 0; label < max_labels; ++label) {
+                    const float w = label_weights[(lid * max_labels) + label];
+                    if (w > max_weight) {
+                        max_weight = w;
                         best_label = label;
                     }
                 }
@@ -162,7 +171,7 @@ bool LabelPropagationSYCL::run_iteration_sycl(const DeviceFlatHypergraph& flat_h
         queue_
             .submit([&](sycl::handler& h) {
                 h.depends_on(e);
-                sycl::local_accessor<float, 1> label_weights(MAX_LABELS * workgroup_size, h);
+                sycl::local_accessor<float, 1> label_weights(static_cast<std::size_t>(max_labels) * workgroup_size, h);
                 auto sumr = sycl::reduction<std::size_t>(changes_ptr, sycl::plus<>());
 
                 h.parallel_for(sycl::nd_range<1>(global_size, workgroup_size), sumr, [=](sycl::nd_item<1> idx, auto& sum_arg) {
@@ -172,7 +181,7 @@ bool LabelPropagationSYCL::run_iteration_sycl(const DeviceFlatHypergraph& flat_h
                     if (v >= flat_hg.num_vertices) return;
 
 #pragma unroll
-                    for (int i = 0; i < MAX_LABELS; ++i) { label_weights[(lid * MAX_LABELS) + i] = 0.0f; }
+                    for (int i = 0; i < max_labels; ++i) { label_weights[(lid * max_labels) + i] = 0.0f; }
 
                     // Get incident vertices for edge_id
                     const std::size_t edge_start = vertex_offsets[v];
@@ -183,16 +192,17 @@ bool LabelPropagationSYCL::run_iteration_sycl(const DeviceFlatHypergraph& flat_h
                         auto edge = vertex_edges[edge_id];
 
                         auto label = edge_labels[edge];
-                        label_weights[(lid * MAX_LABELS) + label] += 1.0f;
+                        if (label >= 0 && label < max_labels) { label_weights[(lid * max_labels) + label] += 1.0f; }
                     }
 
                     // Find label with maximum weight
                     Hypergraph::Label best_label = vertex_labels[v];
                     float max_weight = -1.0f;
 
-                    for (int label = 0; label < MAX_LABELS; ++label) {
-                        if (label_weights[(lid * MAX_LABELS) + label] > max_weight) {
-                            max_weight = label_weights[(lid * MAX_LABELS) + label];
+                    for (int label = 0; label < max_labels; ++label) {
+                        const float w = label_weights[(lid * max_labels) + label];
+                        if (w > max_weight) {
+                            max_weight = w;
                             best_label = label;
                         }
                     }

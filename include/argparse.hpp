@@ -14,6 +14,7 @@ namespace CLI {
 struct DeviceOptions {
     size_t threads = 0; // 0 = auto
     size_t workgroup_size = 256;
+    size_t max_labels = 10; // upper bound for label IDs
 };
 
 struct Options {

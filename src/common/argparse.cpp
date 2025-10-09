@@ -1,5 +1,6 @@
 #include "argparse.hpp"
 #include "hypergraph.hpp"
+#include <algorithm>
 #include <cctype>
 #include <iostream>
 #include <sstream>
@@ -273,6 +274,8 @@ Options parse_args(int argc, char** argv) {
         }
     }
 
+    out.device.max_labels = out.label_classes > 0 ? out.label_classes : 10;
+
     if (out.help) {
         print_help_with_generators();
         // Signal caller to exit by setting iterations to 0
@@ -351,6 +354,7 @@ void print_cli_summary(const Options& opts) {
     std::cout << "Device: " << std::endl;
     std::cout << "  Threads: " << (opts.device.threads == 0 ? "auto" : std::to_string(opts.device.threads)) << std::endl;
     std::cout << "  Workgroup size: " << opts.device.workgroup_size << std::endl;
+    std::cout << "  Max labels: " << opts.device.max_labels << std::endl;
     std::cout << std::endl;
 }
 

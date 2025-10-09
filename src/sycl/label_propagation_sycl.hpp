@@ -99,5 +99,10 @@ class LabelPropagationSYCL : public LabelPropagationAlgorithm {
     /**
      * @brief Run one iteration of label propagation on GPU
      */
-    bool run_iteration_sycl(const DeviceFlatHypergraph& flat_hg, Hypergraph::Label* vertex_labels, Hypergraph::Label* edge_labels, std::size_t* changes, double tolerance);
+    bool run_iteration_sycl(const DeviceFlatHypergraph& flat_hg,
+        Hypergraph::Label* vertex_labels,
+        Hypergraph::Label* edge_labels,
+        std::size_t* changes,
+        int max_labels,
+        double tolerance);
 };
