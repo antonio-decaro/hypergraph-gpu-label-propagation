@@ -1,5 +1,6 @@
 #include "label_propagation_openmp.hpp"
 #include <algorithm>
+#include <chrono>
 #include <iostream>
 
 LabelPropagationOpenMP::LabelPropagationOpenMP(const CLI::DeviceOptions& device) : LabelPropagationAlgorithm(device) {
@@ -8,12 +9,23 @@ LabelPropagationOpenMP::LabelPropagationOpenMP(const CLI::DeviceOptions& device)
     omp_set_num_threads(num_threads_);
 }
 
-int LabelPropagationOpenMP::run(Hypergraph& hypergraph, int max_iterations, double tolerance) {
+PerformanceMeasurer LabelPropagationOpenMP::run(Hypergraph& hypergraph, int max_iterations, double tolerance) {
     std::cout << "Running OpenMP target (GPU) label propagation with " << num_threads_ << " threads\n";
+
+    PerformanceMeasurer perf;
+    const auto overall_start = PerformanceMeasurer::clock::now();
 
     const std::size_t num_vertices = hypergraph.get_num_vertices();
     const std::size_t num_edges = hypergraph.get_num_edges();
 
+    if (num_vertices == 0 || num_edges == 0) {
+        std::cout << "Empty hypergraph detected; nothing to compute.\n";
+        perf.set_iterations(0);
+        perf.set_total_time(PerformanceMeasurer::clock::now() - overall_start);
+        return perf;
+    }
+
+    const auto setup_start = PerformanceMeasurer::clock::now();
     // Flatten hypergraph for device-friendly access
     Hypergraph::FlatHypergraph flat = hypergraph.flatten();
 
@@ -30,12 +42,17 @@ int LabelPropagationOpenMP::run(Hypergraph& hypergraph, int max_iterations, doub
     // SYCL version assumes small bounded label space; mirror that here
     constexpr int MAX_LABELS = 10; // must be >= number of possible labels
 
-    int iteration = 0;
+    const auto setup_end = PerformanceMeasurer::clock::now();
+    perf.add_moment("setup", setup_end - setup_start);
+
+    const auto iteration_start = PerformanceMeasurer::clock::now();
+    int iterations_completed = 0;
+    bool converged = false;
     // Workgroup size used for GPU-style teams threading and scratch sizing
     constexpr int MAX_TEAM_SIZE = 1024; // preallocate for maximum team members
     int wgs = device_.workgroup_size > 0 ? static_cast<int>(device_.workgroup_size) : 256;
     wgs = std::min(wgs, MAX_TEAM_SIZE);
-    for (iteration = 0; iteration < max_iterations; ++iteration) {
+    for (int iteration = 0; iteration < max_iterations; ++iteration) {
         Hypergraph::Label* vlabels = vertex_labels.data();
         Hypergraph::Label* elabels = edge_labels.data();
         const Hypergraph::VertexId* edge_vertices = flat.edge_vertices.data();
@@ -130,11 +147,24 @@ int LabelPropagationOpenMP::run(Hypergraph& hypergraph, int max_iterations, doub
         const double change_ratio = static_cast<double>(changes) / static_cast<double>(num_vertices);
         if (change_ratio < tolerance) {
             std::cout << "Converged after " << iteration + 1 << " iterations\n";
+            converged = true;
+            iterations_completed = iteration + 1;
             break;
         }
         if ((iteration + 1) % 10 == 0) { std::cout << "Iteration " << iteration + 1 << " completed\n"; }
     }
 
+    if (!converged) { iterations_completed = max_iterations; }
+
+    const auto iteration_end = PerformanceMeasurer::clock::now();
+    perf.add_moment("iterations", iteration_end - iteration_start);
+
+    const auto finalize_start = PerformanceMeasurer::clock::now();
     hypergraph.set_labels(vertex_labels);
-    return iteration + 1;
+    const auto finalize_end = PerformanceMeasurer::clock::now();
+    perf.add_moment("finalize", finalize_end - finalize_start);
+
+    perf.set_iterations(iterations_completed);
+    perf.set_total_time(PerformanceMeasurer::clock::now() - overall_start);
+    return perf;
 }
