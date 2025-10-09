@@ -13,8 +13,8 @@ namespace {
 constexpr int MAX_LABELS = 10; // must cover possible label values
 constexpr int MAX_CUDA_BLOCK_SIZE = 1024;
 
-__global__ void update_edge_labels_kernel(
-    const Hypergraph::VertexId* edge_vertices, const std::size_t* edge_offsets, Hypergraph::Label* edge_labels, const Hypergraph::Label* vertex_labels, size_t* changes, std::size_t num_edges) {
+__global__ void
+update_edge_labels_kernel(const Hypergraph::VertexId* edge_vertices, const std::size_t* edge_offsets, Hypergraph::Label* edge_labels, const Hypergraph::Label* vertex_labels, std::size_t num_edges) {
     const std::size_t edge = static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
     if (edge >= num_edges) { return; }
 

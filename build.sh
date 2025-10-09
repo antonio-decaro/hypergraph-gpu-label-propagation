@@ -91,7 +91,7 @@ fi
 if [[ -n "$sycl_compiler" ]]; then
   echo "Building with SYCL compiler: $sycl_compiler ..."
   (
-    cmake -B "$SCRIPT_DIR/build/sycl/" -DCMAKE_CXX_COMPILER="$sycl_compiler" -DCMAKE_BUILD_TYPE=Release -DBUILD_SYCL=ON -DOFFLOAD_VENDOR="$vendor" -DOFFLOAD_TARGET="$arch" > "$SCRIPT_DIR/build/cmake_sycl.log" 2>&1 && \
+    cmake -S $SCRIPT_DIR -B "$SCRIPT_DIR/build/sycl/" -DCMAKE_CXX_COMPILER="$sycl_compiler" -DCMAKE_BUILD_TYPE=Release -DBUILD_SYCL=ON -DOFFLOAD_VENDOR="$vendor" -DOFFLOAD_TARGET="$arch" > "$SCRIPT_DIR/build/cmake_sycl.log" 2>&1 && \
     cmake --build "$SCRIPT_DIR/build/sycl/" -t label_propagation_sycl -j 8 > "$SCRIPT_DIR/build/cmake_sycl_build.log" 2>&1 && \
     cp "$SCRIPT_DIR/build/sycl/label_propagation_sycl" "$SCRIPT_DIR/build/label_propagation_sycl"
   ) &
@@ -104,7 +104,7 @@ fi
 if [[ -n "$openmp_compiler" ]]; then
   echo "Building with OpenMP compiler: $openmp_compiler ..."
   (
-    cmake -B "$SCRIPT_DIR/build/openmp/" -DCMAKE_CXX_COMPILER="$openmp_compiler" -DCMAKE_BUILD_TYPE=Release -DBUILD_OPENMP=ON -DOFFLOAD_VENDOR="$vendor" -DOFFLOAD_TARGET="$arch" > "$SCRIPT_DIR/build/cmake_openmp.log" 2>&1 && \
+    cmake -S $SCRIPT_DIR -B "$SCRIPT_DIR/build/openmp/" -DCMAKE_CXX_COMPILER="$openmp_compiler" -DCMAKE_BUILD_TYPE=Release -DBUILD_OPENMP=ON -DOFFLOAD_VENDOR="$vendor" -DOFFLOAD_TARGET="$arch" > "$SCRIPT_DIR/build/cmake_openmp.log" 2>&1 && \
     cmake --build "$SCRIPT_DIR/build/openmp/" -t label_propagation_openmp -j 8 > "$SCRIPT_DIR/build/cmake_openmp_build.log" 2>&1 && \
     cp "$SCRIPT_DIR/build/openmp/label_propagation_openmp" "$SCRIPT_DIR/build/label_propagation_openmp"
   ) &
@@ -117,7 +117,7 @@ fi
 if [[ -n "$kokkos_compiler" ]]; then
   echo "Building with Kokkos compiler: $kokkos_compiler ..."
   (
-    cmake -B "$SCRIPT_DIR/build/kokkos/" -DCMAKE_CXX_COMPILER="$kokkos_compiler" -DCMAKE_BUILD_TYPE=Release -DBUILD_KOKKOS=ON -DOFFLOAD_VENDOR="$vendor" -DOFFLOAD_TARGET="$arch" > "$SCRIPT_DIR/build/cmake_kokkos.log" 2>&1 && \
+    cmake -S $SCRIPT_DIR -B "$SCRIPT_DIR/build/kokkos/" -DCMAKE_CXX_COMPILER="$kokkos_compiler" -DCMAKE_BUILD_TYPE=Release -DBUILD_KOKKOS=ON -DOFFLOAD_VENDOR="$vendor" -DOFFLOAD_TARGET="$arch" > "$SCRIPT_DIR/build/cmake_kokkos.log" 2>&1 && \
     cmake --build "$SCRIPT_DIR/build/kokkos/" -t label_propagation_kokkos -j 8 > "$SCRIPT_DIR/build/cmake_kokkos_build.log" 2>&1 && \
     cp "$SCRIPT_DIR/build/kokkos/label_propagation_kokkos" "$SCRIPT_DIR/build/label_propagation_kokkos"
   ) &
@@ -130,7 +130,7 @@ fi
 if [[ -n "$cuda_compiler" ]]; then
   echo "Building with CUDA compiler: $cuda_compiler ..."
   (
-    cmake -B "$SCRIPT_DIR/build/cuda/" -DCMAKE_CUDA_COMPILER="$cuda_compiler" -DCMAKE_BUILD_TYPE=Release -DBUILD_CUDA=ON -DOFFLOAD_VENDOR="${vendor:-NVIDIA}" -DOFFLOAD_TARGET="$arch" > "$SCRIPT_DIR/build/cmake_cuda.log" 2>&1 && \
+    cmake -S $SCRIPT_DIR -B "$SCRIPT_DIR/build/cuda/" -DCMAKE_CUDA_COMPILER="$cuda_compiler" -DCMAKE_BUILD_TYPE=Release -DBUILD_CUDA=ON -DOFFLOAD_VENDOR="${vendor:-NVIDIA}" -DOFFLOAD_TARGET="$arch" > "$SCRIPT_DIR/build/cmake_cuda.log" 2>&1 && \
     cmake --build "$SCRIPT_DIR/build/cuda/" -t label_propagation_cuda -j 8 > "$SCRIPT_DIR/build/cmake_cuda_build.log" 2>&1 && \
     cp "$SCRIPT_DIR/build/cuda/label_propagation_cuda" "$SCRIPT_DIR/build/label_propagation_cuda"
   ) &
