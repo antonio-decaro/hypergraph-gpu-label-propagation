@@ -1,9 +1,11 @@
 #pragma once
 
 #include "argparse.hpp"
+#include <chrono>
 #include <cstddef>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 /**
@@ -121,6 +123,33 @@ class Hypergraph {
     std::shared_ptr<FlatHypergraph> flat_cache_;      // Cached flattened representation
 };
 
+class PerformanceMeasurer {
+  public:
+    using clock = std::chrono::high_resolution_clock;
+
+    struct Moment {
+        std::string label;
+        std::chrono::duration<double, std::milli> duration;
+    };
+
+    void add_moment(std::string label, clock::duration duration) {
+        moments_.push_back(Moment{std::move(label), std::chrono::duration<double, std::milli>(duration)});
+    }
+
+    void set_iterations(int iterations) { iterations_ = iterations; }
+    int iterations() const { return iterations_; }
+
+    void set_total_time(clock::duration duration) { total_time_ = std::chrono::duration<double, std::milli>(duration); }
+    std::chrono::duration<double, std::milli> total_time() const { return total_time_; }
+
+    const std::vector<Moment>& moments() const { return moments_; }
+
+  private:
+    int iterations_ = 0;
+    std::vector<Moment> moments_;
+    std::chrono::duration<double, std::milli> total_time_{0.0};
+};
+
 /**
  * @brief Abstract base class for label propagation algorithms
  */
@@ -134,9 +163,9 @@ class LabelPropagationAlgorithm {
      * @param hypergraph The input hypergraph
      * @param max_iterations Maximum number of iterations
      * @param tolerance Convergence tolerance
-     * @return Number of iterations performed
+     * @return Performance summary for the run
      */
-    virtual int run(Hypergraph& hypergraph, int max_iterations = 100, double tolerance = 1e-6) = 0;
+    virtual PerformanceMeasurer run(Hypergraph& hypergraph, int max_iterations = 100, double tolerance = 1e-6) = 0;
 
     /**
      * @brief Get the name of the implementation
