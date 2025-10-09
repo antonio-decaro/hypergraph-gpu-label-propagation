@@ -1,5 +1,6 @@
 #include "label_propagation_sycl.hpp"
 #include <algorithm>
+#include <chrono>
 #include <iostream>
 #include <stdexcept>
 #include <type_traits>
@@ -12,47 +13,88 @@ LabelPropagationSYCL::LabelPropagationSYCL(const CLI::DeviceOptions& device, con
 
 LabelPropagationSYCL::~LabelPropagationSYCL() = default;
 
-int LabelPropagationSYCL::run(Hypergraph& hypergraph, int max_iterations, double tolerance) {
+PerformanceMeasurer LabelPropagationSYCL::run(Hypergraph& hypergraph, int max_iterations, double tolerance) {
     std::cout << "Running SYCL label propagation\n";
 
-    // Flatten the hypergraph for GPU processing
-    auto hg = create_device_hypergraph(hypergraph);
-    size_t* changes = sycl::malloc_device<size_t>(1, queue_);
+    PerformanceMeasurer perf;
+    const auto overall_start = PerformanceMeasurer::clock::now();
 
-    int iteration = 0;
+    const std::size_t num_vertices = hypergraph.get_num_vertices();
+    const std::size_t num_edges = hypergraph.get_num_edges();
+
+    if (num_vertices == 0 || num_edges == 0) {
+        std::cout << "Empty hypergraph detected; nothing to compute.\n";
+        perf.set_iterations(0);
+        perf.set_total_time(PerformanceMeasurer::clock::now() - overall_start);
+        return perf;
+    }
+
+    DeviceFlatHypergraph hg{};
+    size_t* changes = nullptr;
+    Hypergraph::Label* vertex_labels = nullptr;
+    Hypergraph::Label* edge_labels = nullptr;
+
+    const auto setup_start = PerformanceMeasurer::clock::now();
+
+    // Flatten the hypergraph for GPU processing
+    hg = create_device_hypergraph(hypergraph);
+    changes = sycl::malloc_device<size_t>(1, queue_);
 
     try {
         // Create SYCL arrays for labels
-        Hypergraph::Label* vertex_labels = sycl::malloc_device<Hypergraph::Label>(hypergraph.get_num_vertices(), queue_);
-        Hypergraph::Label* edge_labels = sycl::malloc_device<Hypergraph::Label>(hypergraph.get_num_edges(), queue_);
+        vertex_labels = sycl::malloc_device<Hypergraph::Label>(num_vertices, queue_);
+        edge_labels = sycl::malloc_device<Hypergraph::Label>(num_edges, queue_);
 
-        queue_.copy(hypergraph.get_labels().data(), vertex_labels, hypergraph.get_num_vertices()).wait();
+        queue_.copy(hypergraph.get_labels().data(), vertex_labels, num_vertices).wait();
 
-        for (iteration = 0; iteration < max_iterations; ++iteration) {
-            bool converged = run_iteration_sycl(hg, vertex_labels, edge_labels, changes, tolerance);
+        const auto setup_end = PerformanceMeasurer::clock::now();
+        perf.add_moment("setup", setup_end - setup_start);
 
-            if (converged) {
+        const auto iteration_start = PerformanceMeasurer::clock::now();
+        int iterations_completed = 0;
+        bool converged = false;
+        for (int iteration = 0; iteration < max_iterations; ++iteration) {
+            bool iteration_converged = run_iteration_sycl(hg, vertex_labels, edge_labels, changes, tolerance);
+
+            if (iteration_converged) {
                 std::cout << "Converged after " << iteration + 1 << " iterations\n";
+                iterations_completed = iteration + 1;
+                converged = true;
                 break;
             }
 
             if ((iteration + 1) % 10 == 0) { std::cout << "Iteration " << iteration + 1 << " completed\n"; }
         }
 
+        if (!converged) { iterations_completed = max_iterations; }
+
+        const auto iteration_end = PerformanceMeasurer::clock::now();
+        perf.add_moment("iterations", iteration_end - iteration_start);
+
+        const auto finalize_start = PerformanceMeasurer::clock::now();
         // Copy results back
-        std::vector<Hypergraph::Label> final_labels(hypergraph.get_num_vertices());
-        queue_.copy(vertex_labels, final_labels.data(), hypergraph.get_num_vertices()).wait();
+        std::vector<Hypergraph::Label> final_labels(num_vertices);
+        queue_.copy(vertex_labels, final_labels.data(), num_vertices).wait();
         hypergraph.set_labels(final_labels);
 
+        const auto finalize_end = PerformanceMeasurer::clock::now();
+        perf.add_moment("finalize", finalize_end - finalize_start);
+        perf.set_iterations(iterations_completed);
+
+        cleanup_flat_hypergraph(hg);
+        if (changes) { sycl::free(changes, queue_); changes = nullptr; }
+        if (vertex_labels) { sycl::free(vertex_labels, queue_); vertex_labels = nullptr; }
+        if (edge_labels) { sycl::free(edge_labels, queue_); edge_labels = nullptr; }
+
+        perf.set_total_time(PerformanceMeasurer::clock::now() - overall_start);
+        return perf;
     } catch (...) {
         cleanup_flat_hypergraph(hg);
-        sycl::free(changes, queue_);
+        if (changes) { sycl::free(changes, queue_); }
+        if (vertex_labels) { sycl::free(vertex_labels, queue_); }
+        if (edge_labels) { sycl::free(edge_labels, queue_); }
         throw;
     }
-
-    cleanup_flat_hypergraph(hg);
-    sycl::free(changes, queue_);
-    return iteration + 1;
 }
 
 bool LabelPropagationSYCL::run_iteration_sycl(const DeviceFlatHypergraph& flat_hg, Hypergraph::Label* vertex_labels, Hypergraph::Label* edge_labels, std::size_t* changes, double tolerance) {
