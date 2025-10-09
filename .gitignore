@@ -66,4 +66,6 @@ Makefile
 data/*.json
 
 # Python
+.venv
+__pycache__/
 scripts/**/

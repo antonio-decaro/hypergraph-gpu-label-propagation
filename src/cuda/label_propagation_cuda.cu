@@ -15,7 +15,7 @@ constexpr int MAX_CUDA_BLOCK_SIZE = 1024;
 
 __global__ void
 update_edge_labels_kernel(const Hypergraph::VertexId* edge_vertices, const std::size_t* edge_offsets, Hypergraph::Label* edge_labels, const Hypergraph::Label* vertex_labels, std::size_t num_edges) {
-    const std::size_t edge = static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+    const std::size_t edge = (static_cast<std::size_t>(blockIdx.x) * blockDim.x) + threadIdx.x;
     if (edge >= num_edges) { return; }
 
     __shared__ float shared_counts[MAX_LABELS * MAX_CUDA_BLOCK_SIZE];
