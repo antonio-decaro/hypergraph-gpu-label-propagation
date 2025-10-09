@@ -36,6 +36,7 @@ endif()
 set(BUILD_OPENMP OFF CACHE BOOL "Build OpenMP implementation")
 set(BUILD_SYCL OFF CACHE BOOL "Build SYCL implementation")  
 set(BUILD_KOKKOS OFF CACHE BOOL "Build Kokkos implementation")
+set(BUILD_CUDA OFF CACHE BOOL "Build CUDA implementation")
 
 set(OFFLOAD_VENDOR "NVIDIA" CACHE STRING "Offload target vendor: NVIDIA, AMD, or INTEL")
 set_property(CACHE OFFLOAD_VENDOR PROPERTY STRINGS "NVIDIA" "AMD" "INTEL")
@@ -45,6 +46,7 @@ set(OFFLOAD_TARGET "none" CACHE STRING "Offload target architecture (none, sm_70
 # OpenMP target offload configuration (module)
 include(cmake/OpenMPOffload.cmake)
 include(cmake/SYCLOffload.cmake)
+include(cmake/CUDAOffload.cmake)
 
 # Build OpenMP implementation
 if(BUILD_OPENMP)
@@ -134,12 +136,44 @@ if(BUILD_KOKKOS)
     endif()
 endif()
 
+# Build CUDA implementation
+if(BUILD_CUDA)
+    find_package(CUDAToolkit QUIET)
+
+    if(CUDAToolkit_FOUND)
+        enable_language(CUDA)
+        message(STATUS "Building CUDA implementation")
+
+        add_executable(label_propagation_cuda
+            src/cuda/main_cuda.cpp
+            src/cuda/label_propagation_cuda.cu
+        )
+
+        target_link_libraries(label_propagation_cuda
+            PRIVATE
+                hypergraph_common
+                cli_common
+                CUDA::cudart
+        )
+
+        target_include_directories(label_propagation_cuda PRIVATE src/cuda)
+        cuda_configure_offload(label_propagation_cuda)
+    else()
+        message(WARNING "CUDAToolkit not found, skipping CUDA implementation")
+        message(STATUS "To build CUDA implementation:")
+        message(STATUS "  1. Install the NVIDIA CUDA Toolkit")
+        message(STATUS "  2. Ensure nvcc and cudart are available to CMake")
+        message(STATUS "  3. Set -DBUILD_CUDA=ON")
+    endif()
+endif()
+
 # Print build summary
 message(STATUS "")
 message(STATUS "Build Configuration Summary:")
 message(STATUS "  OpenMP: ${BUILD_OPENMP} | OMP Offload=${ENABLE_OPENMP_OFFLOAD} arch='${OMP_TARGET_ARCH}'")
 message(STATUS "  SYCL:   ${BUILD_SYCL}")  
 message(STATUS "  Kokkos: ${BUILD_KOKKOS}")
+message(STATUS "  CUDA:   ${BUILD_CUDA}")
 message(STATUS "")
 
 # Add usage information
@@ -154,5 +188,8 @@ if(TARGET label_propagation_sycl)
 endif()
 if(TARGET label_propagation_kokkos)
     message(STATUS "    Kokkos: make label_propagation_kokkos") 
+endif()
+if(TARGET label_propagation_cuda)
+    message(STATUS "    CUDA:   make label_propagation_cuda")
 endif()
 message(STATUS "  Install: make install")

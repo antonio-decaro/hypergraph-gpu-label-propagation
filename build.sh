@@ -5,6 +5,7 @@ SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 openmp_compiler=""
 kokkos_compiler=""
 sycl_compiler=""
+cuda_compiler=""
 arch=""
 vendor=""
 
@@ -14,6 +15,7 @@ help()
     [ --sycl=compiler ] Path to the SYCL compiler (e.g., dpcpp, hipcc);
     [ --openmp=compiler ] Path to the OpenMP compiler (e.g., g++, clang++, icpc);
     [ --kokkos=compiler ] Path to the Kokkos compiler (e.g., g++, clang++, hipcc, nvcc);
+    [ --cuda=compiler ] Path to the CUDA compiler (e.g., nvcc);
     [ --arch=architecture ] The target architecture (e.g., native, skylake, zen2, sm_70, gfx90a);
     [ -h | --help ] Print this help message and exit.
   "
@@ -31,6 +33,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --kokkos=*)
       kokkos_compiler="${1#*=}"
+      shift
+      ;;
+    --cuda=*)
+      cuda_compiler="${1#*=}"
       shift
       ;;
     --arch=*)
@@ -65,13 +71,17 @@ declare -a pids=()
 # associative array to map pid -> build name for clearer failure messages
 declare -A pid_name_map=()
 
-if [ -z "$sycl_compiler" ] && [ -z "$openmp_compiler" ] && [ -z "$kokkos_compiler" ]; then
-  echo "Error: At least one of --sycl, --openmp, or --kokkos must be specified."
+if [ -z "$sycl_compiler" ] && [ -z "$openmp_compiler" ] && [ -z "$kokkos_compiler" ] && [ -z "$cuda_compiler" ]; then
+  echo "Error: At least one of --sycl, --openmp, --kokkos, or --cuda must be specified."
   help
   exit 1
 fi
 
-if [ -z "$arch" ] || [ -z "$vendor" ]; then
+if [ -n "$cuda_compiler" ]; then
+  vendor=${vendor:-NVIDIA}
+fi
+
+if [ -z "$arch" ] || { [ -z "$vendor" ] && [ -z "$cuda_compiler" ]; }; then
   echo "Error: --vendor and --arch must be specified."
   help
   exit 1
@@ -114,6 +124,19 @@ if [[ -n "$kokkos_compiler" ]]; then
   pid=$!
   pids+=("$pid")
   pid_name_map["$pid"]="Kokkos"
+fi
+
+# if cuda compiler is specified
+if [[ -n "$cuda_compiler" ]]; then
+  echo "Building with CUDA compiler: $cuda_compiler ..."
+  (
+    cmake -B "$SCRIPT_DIR/build/cuda/" -DCMAKE_CUDA_COMPILER="$cuda_compiler" -DCMAKE_BUILD_TYPE=Release -DBUILD_CUDA=ON -DOFFLOAD_VENDOR="${vendor:-NVIDIA}" -DOFFLOAD_TARGET="$arch" > "$SCRIPT_DIR/build/cmake_cuda.log" 2>&1 && \
+    cmake --build "$SCRIPT_DIR/build/cuda/" -t label_propagation_cuda -j 8 > "$SCRIPT_DIR/build/cmake_cuda_build.log" 2>&1 && \
+    cp "$SCRIPT_DIR/build/cuda/label_propagation_cuda" "$SCRIPT_DIR/build/label_propagation_cuda"
+  ) &
+  pid=$!
+  pids+=("$pid")
+  pid_name_map["$pid"]="CUDA"
 fi
 
 # wait for background build processes to finish

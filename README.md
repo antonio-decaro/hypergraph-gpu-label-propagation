@@ -1,10 +1,10 @@
 # Hypergraph GPU Label Propagation
 
-Label Propagation for hypergraphs across multiple backends: OpenMP (CPU and offload), SYCL, and Kokkos. A unified CLI configures generators, algorithm limits, labels, and binary I/O.
+Label Propagation for hypergraphs across multiple backends: OpenMP (CPU and offload), SYCL, Kokkos, and CUDA. A unified CLI configures generators, algorithm limits, labels, and binary I/O.
 
 ## Overview
 
-- Implementations: OpenMP, SYCL, and Kokkos.
+- Implementations: OpenMP, SYCL, Kokkos, and CUDA.
 - Unified CLI via cxxopts for all backends.
 - Built‑in random hypergraph generators: uniform, fixed (a.k.a. d‑uniform ER), planted partition, and hSBM.
 - Binary save/load for reproducible experiments.
@@ -17,6 +17,7 @@ src/common/             # Shared hypergraph + generators + CLI parsing
 src/openmp/             # OpenMP implementation + entry point
 src/sycl/               # SYCL implementation + entry point
 src/kokkos/             # Kokkos implementation + entry point
+src/cuda/               # CUDA implementation + entry point
 ```
 
 ## Build
@@ -24,7 +25,7 @@ src/kokkos/             # Kokkos implementation + entry point
 Prereqs
 - CMake ≥ 3.16
 - C++17 compiler
-- Optional: SYCL toolchain; Kokkos installation
+- Optional: SYCL toolchain; Kokkos installation; CUDA Toolkit 11+
 
 Configure + build (OpenMP)
 ```bash
@@ -36,6 +37,7 @@ cmake --build . -j
 Other backends
 - SYCL: `cmake -DBUILD_SYCL=ON -DSYCL_TARGETS="spir64,nvptx64-nvidia-cuda" .. && cmake --build . -j`
 - Kokkos: `cmake -DBUILD_KOKKOS=ON -DKokkos_ROOT=/path/to/kokkos .. && cmake --build . -j`
+- CUDA: `cmake -DBUILD_CUDA=ON -DOFFLOAD_TARGET=sm_80 .. && cmake --build . -j`
 
 Install
 ```bash
