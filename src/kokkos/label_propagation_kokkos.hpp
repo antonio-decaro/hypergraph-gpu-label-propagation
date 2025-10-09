@@ -32,7 +32,7 @@ class LabelPropagationKokkos : public LabelPropagationAlgorithm {
     /**
      * @brief Run the label propagation algorithm using Kokkos
      */
-    int run(Hypergraph& hypergraph, int max_iterations = 100, double tolerance = 1e-6) override;
+    PerformanceMeasurer run(Hypergraph& hypergraph, int max_iterations = 100, double tolerance = 1e-6) override;
 
     /**
      * @brief Get the name of the implementation

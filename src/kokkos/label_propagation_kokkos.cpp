@@ -1,5 +1,6 @@
 #include "label_propagation_kokkos.hpp"
 #include <algorithm>
+#include <chrono>
 #include <iostream>
 
 LabelPropagationKokkos::LabelPropagationKokkos(const CLI::DeviceOptions& device) : LabelPropagationAlgorithm(device), kokkos_initialized_(false) {
@@ -17,9 +18,20 @@ LabelPropagationKokkos::~LabelPropagationKokkos() {
     if (kokkos_initialized_ && Kokkos::is_initialized()) { Kokkos::finalize(); }
 }
 
-int LabelPropagationKokkos::run(Hypergraph& hypergraph, int max_iterations, double tolerance) {
+PerformanceMeasurer LabelPropagationKokkos::run(Hypergraph& hypergraph, int max_iterations, double tolerance) {
     std::cout << "Running Kokkos label propagation\n";
 
+    PerformanceMeasurer perf;
+    const auto overall_start = PerformanceMeasurer::clock::now();
+
+    if (hypergraph.get_num_vertices() == 0 || hypergraph.get_num_edges() == 0) {
+        std::cout << "Empty hypergraph detected; nothing to compute.\n";
+        perf.set_iterations(0);
+        perf.set_total_time(PerformanceMeasurer::clock::now() - overall_start);
+        return perf;
+    }
+
+    const auto setup_start = PerformanceMeasurer::clock::now();
     // Convert to Kokkos representation
     auto kokkos_hg = create_kokkos_hypergraph(hypergraph);
 
@@ -37,9 +49,14 @@ int LabelPropagationKokkos::run(Hypergraph& hypergraph, int max_iterations, doub
     // Initialize edge labels to zero
     Kokkos::deep_copy(edge_labels, Hypergraph::Label(0));
 
-    int iteration = 0;
+    const auto setup_end = PerformanceMeasurer::clock::now();
+    perf.add_moment("setup", setup_end - setup_start);
+
+    const auto iteration_start = PerformanceMeasurer::clock::now();
+    int iterations_completed = 0;
+    bool converged = false;
     constexpr int MAX_LABELS = 10; // keep consistent with SYCL/OpenMP
-    for (iteration = 0; iteration < max_iterations; ++iteration) {
+    for (int iteration = 0; iteration < max_iterations; ++iteration) {
         // Use team scratch (shared) memory to hold per-thread label counts
         using ExecSpace = ExecutionSpace;
         using TeamPolicy = Kokkos::TeamPolicy<ExecSpace>;
@@ -156,11 +173,19 @@ int LabelPropagationKokkos::run(Hypergraph& hypergraph, int max_iterations, doub
         const double change_ratio = static_cast<double>(changes) / static_cast<double>(kokkos_hg.num_vertices);
         if (change_ratio < tolerance) {
             std::cout << "Converged after " << iteration + 1 << " iterations\n";
+            converged = true;
+            iterations_completed = iteration + 1;
             break;
         }
         if ((iteration + 1) % 10 == 0) { std::cout << "Iteration " << iteration + 1 << " completed\n"; }
     }
 
+    if (!converged) { iterations_completed = max_iterations; }
+
+    const auto iteration_end = PerformanceMeasurer::clock::now();
+    perf.add_moment("iterations", iteration_end - iteration_start);
+
+    const auto finalize_start = PerformanceMeasurer::clock::now();
     // Copy results back to host
     auto host_labels = Kokkos::create_mirror_view(vertex_labels);
     Kokkos::deep_copy(host_labels, vertex_labels);
@@ -168,7 +193,12 @@ int LabelPropagationKokkos::run(Hypergraph& hypergraph, int max_iterations, doub
     for (std::size_t i = 0; i < host_init_labels.size(); ++i) { final_labels[i] = host_labels(i); }
     hypergraph.set_labels(final_labels);
 
-    return iteration + 1;
+    const auto finalize_end = PerformanceMeasurer::clock::now();
+    perf.add_moment("finalize", finalize_end - finalize_start);
+
+    perf.set_iterations(iterations_completed);
+    perf.set_total_time(PerformanceMeasurer::clock::now() - overall_start);
+    return perf;
 }
 
 LabelPropagationKokkos::KokkosHypergraph LabelPropagationKokkos::create_kokkos_hypergraph(const Hypergraph& hypergraph) {
