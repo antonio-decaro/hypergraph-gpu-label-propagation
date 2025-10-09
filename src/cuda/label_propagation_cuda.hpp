@@ -12,7 +12,7 @@ class LabelPropagationCUDA : public LabelPropagationAlgorithm {
     explicit LabelPropagationCUDA(const CLI::DeviceOptions& device);
     ~LabelPropagationCUDA();
 
-    int run(Hypergraph& hypergraph, int max_iterations = 100, double tolerance = 1e-6) override;
+    PerformanceMeasurer run(Hypergraph& hypergraph, int max_iterations = 100, double tolerance = 1e-6) override;
 
     std::string get_name() const override { return "CUDA"; }
 
@@ -32,7 +32,7 @@ class LabelPropagationCUDA : public LabelPropagationAlgorithm {
     bool run_iteration_cuda(const DeviceFlatHypergraph& flat_hg,
                             Hypergraph::Label* d_vertex_labels,
                             Hypergraph::Label* d_edge_labels,
-                            unsigned long long* d_changes,
+                            unsigned int* d_change_flags,
                             double tolerance);
 
     static void check_cuda(cudaError_t err, const char* context);

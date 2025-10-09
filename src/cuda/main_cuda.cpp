@@ -1,6 +1,5 @@
 #include "argparse.hpp"
 #include "label_propagation_cuda.hpp"
-#include <chrono>
 #include <iostream>
 
 int main(int argc, char* argv[]) {
@@ -28,15 +27,17 @@ int main(int argc, char* argv[]) {
 
         LabelPropagationCUDA algorithm(opts.device);
 
-        const auto start_time = std::chrono::high_resolution_clock::now();
-        const int iterations = algorithm.run(*hypergraph, opts.iterations, opts.tolerance);
-        const auto end_time = std::chrono::high_resolution_clock::now();
-
-        const auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+        PerformanceMeasurer perf = algorithm.run(*hypergraph, opts.iterations, opts.tolerance);
 
         std::cout << "\nResults:\n";
-        std::cout << "  Iterations: " << iterations << "\n";
-        std::cout << "  Runtime: " << duration.count() << " ms\n";
+        std::cout << "  Iterations: " << perf.iterations() << "\n";
+        std::cout << "  Total runtime: " << perf.total_time().count() << " ms\n";
+        if (!perf.moments().empty()) {
+            std::cout << "  Breakdown:\n";
+            for (const auto& moment : perf.moments()) {
+                std::cout << "    " << moment.label << ": " << moment.duration.count() << " ms\n";
+            }
+        }
         std::cout << "  Implementation: " << algorithm.get_name() << "\n";
 
     } catch (const std::exception& ex) {
