@@ -69,3 +69,8 @@ data/*.json
 .venv
 __pycache__/
 scripts/**/
+
+build/
+log/**
+*.ncu-rep
+*.csv
