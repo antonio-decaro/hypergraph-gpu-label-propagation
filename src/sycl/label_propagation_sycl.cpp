@@ -184,12 +184,22 @@ bool LabelPropagationSYCL::run_iteration_sycl(
                 sycl::local_accessor<float, 1> label_weights(static_cast<std::size_t>(max_labels * sg_per_wg), h);
 
                 h.parallel_for(sycl::nd_range<1>(global_size, workgroup_size), [=](sycl::nd_item<1> idx) {
-                    const auto sg_id = idx.get_sub_group().get_group_linear_id();
+                    auto sg = idx.get_sub_group();
+                    const auto sg_id = sg.get_group_linear_id();
+                    const auto sg_lane = sg.get_local_linear_id();
+                    const auto sg_width = sg.get_local_range().size();
                     const auto edge_id = sg_id + (idx.get_group_linear_id() * sg_per_wg);
+                    if (edge_id >= pool.sg_pool_edges_size) { return; }
+
                     const auto edge = pool.sg_pool_edges[edge_id];
                     const auto degree = edge_offsets[edge + 1] - edge_offsets[edge];
 
-                    for (auto vertex_id = idx.get_local_linear_id(); vertex_id < degree; vertex_id += idx.get_group_range(0)) {
+                    for (auto label = sg_lane; label < max_labels; label += sg_width) {
+                        label_weights[label * sg_per_wg + sg_id] = 0.0f;
+                    }
+                    sycl::group_barrier(sg);
+
+                    for (auto vertex_id = sg_lane; vertex_id < degree; vertex_id += sg_width) {
                         auto vertex = edge_vertices[edge_offsets[edge] + vertex_id];
                         auto label = vertex_labels[vertex];
                         if (label >= 0 && label < max_labels) {
@@ -198,9 +208,9 @@ bool LabelPropagationSYCL::run_iteration_sycl(
                         }
                     }
 
-                    sycl::group_barrier(idx.get_sub_group());
+                    sycl::group_barrier(sg);
 
-                    if (idx.get_sub_group().leader()) {
+                    if (sg.leader()) {
                         auto best_label = edge_labels[edge];
                         float max_weight = -1.0f;
 
