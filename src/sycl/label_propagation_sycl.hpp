@@ -34,6 +34,26 @@ class LabelPropagationSYCL : public LabelPropagationAlgorithm {
     sycl::queue queue_;
 
     /**
+     * @brief Device execution pool for managing work-groups, sub-groups, and work-items
+     */
+    struct DeviceExecutionPool {
+        std::uint32_t* wg_pool_edges;        // Work-group pool edges
+        std::uint32_t wg_pool_edges_size;    // Size of work-group pool edges
+        std::uint32_t* wg_pool_vertices;     // Work-group pool vertices
+        std::uint32_t wg_pool_vertices_size; // Size of work-group pool vertices
+        std::uint32_t* sg_pool_edges;        // Sub-group pool edges
+        std::uint32_t sg_pool_edges_size;    // Size of sub-group pool edges
+        std::uint32_t* sg_pool_vertices;     // Sub-group pool vertices
+        std::uint32_t sg_pool_vertices_size; // Size of sub-group pool vertices
+        std::uint32_t* wi_pool_edges;        // Work-item pool edges
+        std::uint32_t wi_pool_edges_size;    // Size of work-item pool edges
+        std::uint32_t* wi_pool_vertices;     // Work-item pool vertices
+        std::uint32_t wi_pool_vertices_size; // Size of work-item pool vertices
+        std::uint32_t* tmp_buffer;
+        std::uint32_t tmp_buffer_size;
+    };
+
+    /**
      * @brief Flatten hypergraph data for GPU processing
      */
     struct DeviceFlatHypergraph {
@@ -45,6 +65,8 @@ class LabelPropagationSYCL : public LabelPropagationAlgorithm {
         std::size_t num_vertices;
         std::size_t num_edges;
     };
+
+    DeviceExecutionPool create_execution_pool(const Hypergraph& hypergraph);
 
     /**
      * @brief Convert hypergraph to flat representation
@@ -96,13 +118,40 @@ class LabelPropagationSYCL : public LabelPropagationAlgorithm {
         }
     }
 
+    void cleanup_execution_pool(DeviceExecutionPool& pool) {
+        if (pool.wg_pool_edges) {
+            sycl::free(pool.wg_pool_edges, queue_);
+            pool.wg_pool_edges = nullptr;
+        }
+        if (pool.wg_pool_vertices) {
+            sycl::free(pool.wg_pool_vertices, queue_);
+            pool.wg_pool_vertices = nullptr;
+        }
+        if (pool.sg_pool_edges) {
+            sycl::free(pool.sg_pool_edges, queue_);
+            pool.sg_pool_edges = nullptr;
+        }
+        if (pool.sg_pool_vertices) {
+            sycl::free(pool.sg_pool_vertices, queue_);
+            pool.sg_pool_vertices = nullptr;
+        }
+        if (pool.wi_pool_edges) {
+            sycl::free(pool.wi_pool_edges, queue_);
+            pool.wi_pool_edges = nullptr;
+        }
+        if (pool.wi_pool_vertices) {
+            sycl::free(pool.wi_pool_vertices, queue_);
+            pool.wi_pool_vertices = nullptr;
+        }
+        if (pool.tmp_buffer) {
+            sycl::free(pool.tmp_buffer, queue_);
+            pool.tmp_buffer = nullptr;
+        }
+    }
+
     /**
      * @brief Run one iteration of label propagation on GPU
      */
-    bool run_iteration_sycl(const DeviceFlatHypergraph& flat_hg,
-        Hypergraph::Label* vertex_labels,
-        Hypergraph::Label* edge_labels,
-        std::size_t* changes,
-        int max_labels,
-        double tolerance);
+    bool run_iteration_sycl(
+        const DeviceFlatHypergraph& flat_hg, const DeviceExecutionPool& pool, Hypergraph::Label* vertex_labels, Hypergraph::Label* edge_labels, std::size_t* changes, int max_labels, double tolerance);
 };
