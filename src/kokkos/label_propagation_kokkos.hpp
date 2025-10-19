@@ -2,6 +2,7 @@
 
 #include "hypergraph.hpp"
 #include <Kokkos_Core.hpp>
+#include <cstdint>
 #include <string>
 
 /**
@@ -53,6 +54,22 @@ class LabelPropagationKokkos : public LabelPropagationAlgorithm {
         std::size_t num_edges;
     };
 
+    struct ExecutionPool {
+        Kokkos::View<std::uint32_t*, MemorySpace> wg_pool_edges;
+        std::size_t wg_pool_edges_size{0};
+        Kokkos::View<std::uint32_t*, MemorySpace> sg_pool_edges;
+        std::size_t sg_pool_edges_size{0};
+        Kokkos::View<std::uint32_t*, MemorySpace> wi_pool_edges;
+        std::size_t wi_pool_edges_size{0};
+
+        Kokkos::View<std::uint32_t*, MemorySpace> wg_pool_vertices;
+        std::size_t wg_pool_vertices_size{0};
+        Kokkos::View<std::uint32_t*, MemorySpace> sg_pool_vertices;
+        std::size_t sg_pool_vertices_size{0};
+        Kokkos::View<std::uint32_t*, MemorySpace> wi_pool_vertices;
+        std::size_t wi_pool_vertices_size{0};
+    };
+
   private:
     bool kokkos_initialized_;
 
@@ -60,4 +77,6 @@ class LabelPropagationKokkos : public LabelPropagationAlgorithm {
      * @brief Convert hypergraph to Kokkos representation
      */
     KokkosHypergraph create_kokkos_hypergraph(const Hypergraph& hypergraph);
+
+    ExecutionPool create_execution_pool(const Hypergraph& hypergraph);
 };
