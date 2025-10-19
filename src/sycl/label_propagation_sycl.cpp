@@ -142,10 +142,12 @@ bool LabelPropagationSYCL::run_iteration_sycl(
                     const auto edge = pool.wg_pool_edges[edge_id];
                     const auto degree = edge_offsets[edge + 1] - edge_offsets[edge];
 
-                    if (idx.get_local_linear_id() < max_labels) label_weights[idx.get_local_linear_id()] = 0.0f;
+                    for (auto label = idx.get_local_linear_id(); label < max_labels; label += idx.get_local_range(0)) {
+                        label_weights[label] = 0.0f;
+                    }
                     sycl::group_barrier(idx.get_group());
 
-                    for (auto vertex_id = idx.get_local_linear_id(); vertex_id < degree; vertex_id += idx.get_group_range(0)) {
+                    for (auto vertex_id = idx.get_local_linear_id(); vertex_id < degree; vertex_id += idx.get_local_range(0)) {
                         auto vertex = edge_vertices[edge_offsets[edge] + vertex_id];
                         auto label = vertex_labels[vertex];
                         if (label >= 0 && label < max_labels) {
@@ -243,8 +245,6 @@ bool LabelPropagationSYCL::run_iteration_sycl(
                     const auto edge = pool.wi_pool_edges[edge_id];
                     const std::size_t lid = idx.get_local_linear_id();
 
-                    if (edge == 0) { *changes_ptr = 0; }
-
                     if (edge >= flat_hg.num_edges) return;
 
                     for (int i = 0; i < max_labels; ++i) { label_weights[(lid * max_labels) + i] = 0.0f; }
@@ -281,38 +281,149 @@ bool LabelPropagationSYCL::run_iteration_sycl(
             events.push_back(e);
         }
 
+        auto zero_changes_event = queue_.fill(changes_ptr, std::size_t{0}, 1);
+        events.push_back(zero_changes_event);
+
         // Then update vertex labels based on edge labels
-        queue_
-            .submit([&](sycl::handler& h) {
+        if (pool.wg_pool_vertices_size > 0) {
+            auto e_wg_vertices = queue_.submit([&](sycl::handler& h) {
                 if (!events.empty()) { h.depends_on(events.back()); }
-                size_t global_size = ((flat_hg.num_vertices + workgroup_size - 1) / workgroup_size) * workgroup_size;
+                size_t global_size = pool.wg_pool_vertices_size * workgroup_size;
+
+                sycl::local_accessor<float, 1> label_weights(static_cast<std::size_t>(max_labels), h);
+
+                h.parallel_for(sycl::nd_range<1>(global_size, workgroup_size), [=](sycl::nd_item<1> idx) {
+                    const auto vertex_idx = idx.get_group_linear_id();
+                    if (vertex_idx >= pool.wg_pool_vertices_size) { return; }
+                    const auto vertex = pool.wg_pool_vertices[vertex_idx];
+                    const auto incident_begin = vertex_offsets[vertex];
+                    const auto degree = vertex_offsets[vertex + 1] - incident_begin;
+
+                    for (auto label = idx.get_local_linear_id(); label < max_labels; label += idx.get_local_range(0)) {
+                        label_weights[label] = 0.0f;
+                    }
+                    sycl::group_barrier(idx.get_group());
+
+                    for (auto edge_pos = idx.get_local_linear_id(); edge_pos < degree; edge_pos += idx.get_local_range(0)) {
+                        auto edge = vertex_edges[incident_begin + edge_pos];
+                        auto label = edge_labels[edge];
+                        if (label >= 0 && label < max_labels) {
+                            sycl::atomic_ref<float, sycl::memory_order::relaxed, sycl::memory_scope::work_group> label_aref(label_weights[label]);
+                            label_aref.fetch_add(1.0f);
+                        }
+                    }
+
+                    sycl::group_barrier(idx.get_group());
+
+                    if (idx.get_group().leader()) {
+                        auto best_label = vertex_labels[vertex];
+                        float max_weight = -1.0f;
+
+                        for (auto label = 0; label < max_labels; ++label) {
+                            const float w = label_weights[label];
+                            if (w > max_weight) {
+                                max_weight = w;
+                                best_label = label;
+                            }
+                        }
+
+                        if (vertex_labels[vertex] != best_label) {
+                            sycl::atomic_ref<std::size_t, sycl::memory_order::relaxed, sycl::memory_scope::device> changes_ref(*changes_ptr);
+                            changes_ref.fetch_add(1);
+                            vertex_labels[vertex] = best_label;
+                        }
+                    }
+                });
+            });
+            events.push_back(e_wg_vertices);
+        }
+
+        if (pool.sg_pool_vertices_size > 0) {
+            auto e_sg_vertices = queue_.submit([&](sycl::handler& h) {
+                if (!events.empty()) { h.depends_on(events.back()); }
+                const size_t sg_size = 32;
+                const size_t sg_per_wg = workgroup_size / sg_size;
+                size_t global_size = ((pool.sg_pool_vertices_size / sg_per_wg) + ((pool.sg_pool_vertices_size % sg_per_wg) ? 1 : 0)) * workgroup_size;
+
+                sycl::local_accessor<float, 1> label_weights(static_cast<std::size_t>(max_labels * sg_per_wg), h);
+
+                h.parallel_for(sycl::nd_range<1>(global_size, workgroup_size), [=](sycl::nd_item<1> idx) {
+                    auto sg = idx.get_sub_group();
+                    const auto sg_id = sg.get_group_linear_id();
+                    const auto sg_lane = sg.get_local_linear_id();
+                    const auto sg_width = sg.get_local_range().size();
+                    const auto vertex_idx = sg_id + (idx.get_group_linear_id() * sg_per_wg);
+                    if (vertex_idx >= pool.sg_pool_vertices_size) { return; }
+
+                    const auto vertex = pool.sg_pool_vertices[vertex_idx];
+                    const auto incident_begin = vertex_offsets[vertex];
+                    const auto degree = vertex_offsets[vertex + 1] - incident_begin;
+
+                    for (auto label = sg_lane; label < max_labels; label += sg_width) {
+                        label_weights[label * sg_per_wg + sg_id] = 0.0f;
+                    }
+                    sycl::group_barrier(sg);
+
+                    for (auto edge_pos = sg_lane; edge_pos < degree; edge_pos += sg_width) {
+                        auto edge = vertex_edges[incident_begin + edge_pos];
+                        auto label = edge_labels[edge];
+                        if (label >= 0 && label < max_labels) {
+                            sycl::atomic_ref<float, sycl::memory_order::relaxed, sycl::memory_scope::sub_group> label_aref(label_weights[label * sg_per_wg + sg_id]);
+                            label_aref += 1.0f;
+                        }
+                    }
+
+                    sycl::group_barrier(sg);
+
+                    if (sg.leader()) {
+                        auto best_label = vertex_labels[vertex];
+                        float max_weight = -1.0f;
+
+                        for (auto label = 0; label < max_labels; ++label) {
+                            const float w = label_weights[label * sg_per_wg + sg_id];
+                            if (w > max_weight) {
+                                max_weight = w;
+                                best_label = label;
+                            }
+                        }
+
+                        if (vertex_labels[vertex] != best_label) {
+                            sycl::atomic_ref<std::size_t, sycl::memory_order::relaxed, sycl::memory_scope::device> changes_ref(*changes_ptr);
+                            changes_ref.fetch_add(1);
+                            vertex_labels[vertex] = best_label;
+                        }
+                    }
+                });
+            });
+            events.push_back(e_sg_vertices);
+        }
+
+        if (pool.wi_pool_vertices_size > 0) {
+            auto e_wi_vertices = queue_.submit([&](sycl::handler& h) {
+                if (!events.empty()) { h.depends_on(events.back()); }
+
+                size_t global_size = ((pool.wi_pool_vertices_size + workgroup_size - 1) / workgroup_size) * workgroup_size;
 
                 sycl::local_accessor<float, 1> label_weights(static_cast<std::size_t>(max_labels) * workgroup_size, h);
-                auto sumr = sycl::reduction<std::size_t>(changes_ptr, sycl::plus<>());
 
-                h.parallel_for(sycl::nd_range<1>(global_size, workgroup_size), sumr, [=](sycl::nd_item<1> idx, auto& sum_arg) {
-                    const std::size_t v = idx.get_global_id(0);
+                h.parallel_for(sycl::nd_range<1>(global_size, workgroup_size), [=](sycl::nd_item<1> idx) {
+                    const std::size_t vertex_idx = idx.get_global_id(0);
+                    if (vertex_idx >= pool.wi_pool_vertices_size) return;
+                    const auto vertex = pool.wi_pool_vertices[vertex_idx];
                     const std::size_t lid = idx.get_local_linear_id();
 
-                    if (v >= flat_hg.num_vertices) return;
-
-#pragma unroll
                     for (int i = 0; i < max_labels; ++i) { label_weights[(lid * max_labels) + i] = 0.0f; }
 
-                    // Get incident vertices for edge_id
-                    const std::size_t edge_start = vertex_offsets[v];
-                    const std::size_t edge_end = vertex_offsets[v + 1];
+                    const std::size_t edge_start = vertex_offsets[vertex];
+                    const std::size_t edge_end = vertex_offsets[vertex + 1];
 
-                    // Process each incident vertex
-                    for (std::size_t edge_id = edge_start; edge_id < edge_end; ++edge_id) {
-                        auto edge = vertex_edges[edge_id];
-
+                    for (std::size_t edge_pos = edge_start; edge_pos < edge_end; ++edge_pos) {
+                        auto edge = vertex_edges[edge_pos];
                         auto label = edge_labels[edge];
                         if (label >= 0 && label < max_labels) { label_weights[(lid * max_labels) + label] += 1.0f; }
                     }
 
-                    // Find label with maximum weight
-                    Hypergraph::Label best_label = vertex_labels[v];
+                    Hypergraph::Label best_label = vertex_labels[vertex];
                     float max_weight = -1.0f;
 
                     for (int label = 0; label < max_labels; ++label) {
@@ -323,16 +434,20 @@ bool LabelPropagationSYCL::run_iteration_sycl(
                         }
                     }
 
-                    // Count changes for convergence check
-                    if (vertex_labels[v] != best_label) {
-                        sum_arg += 1;
-                        vertex_labels[v] = best_label;
+                    if (vertex_labels[vertex] != best_label) {
+                        sycl::atomic_ref<std::size_t, sycl::memory_order::relaxed, sycl::memory_scope::device> changes_ref(*changes_ptr);
+                        changes_ref.fetch_add(1);
+                        vertex_labels[vertex] = best_label;
                     }
                 });
-            })
-            .wait();
+            });
+            e_wi_vertices.wait();
+            events.push_back(e_wi_vertices);
+        }
 
     } catch (...) { throw; }
+
+    if (!events.empty()) { events.back().wait(); }
 
     // Check convergence
     std::size_t changes_count;
