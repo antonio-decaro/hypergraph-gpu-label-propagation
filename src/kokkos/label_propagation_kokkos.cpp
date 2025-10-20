@@ -1,10 +1,10 @@
 #include "label_propagation_kokkos.hpp"
+#include <Kokkos_Array.hpp>
 #include <algorithm>
 #include <chrono>
 #include <iostream>
 #include <stdexcept>
 #include <vector>
-#include <Kokkos_Array.hpp>
 
 LabelPropagationKokkos::LabelPropagationKokkos(const CLI::DeviceOptions& device) : LabelPropagationAlgorithm(device), kokkos_initialized_(false) {
     if (!Kokkos::is_initialized()) {
@@ -72,10 +72,7 @@ PerformanceMeasurer LabelPropagationKokkos::run(Hypergraph& hypergraph, int max_
     const int sg_vector_length = 32;
 
     for (int iteration = 0; iteration < max_iterations; ++iteration) {
-        auto run_edge_pool_team = [&](const char* label,
-                                      const Kokkos::View<std::uint32_t*, MemorySpace>& pool_view,
-                                      std::size_t pool_size,
-                                      int team_size) {
+        auto run_edge_pool_team = [&](const char* label, const Kokkos::View<std::uint32_t*, MemorySpace>& pool_view, std::size_t pool_size, int team_size) {
             if (pool_size == 0) { return; }
             TeamPolicy policy(static_cast<int>(pool_size), Kokkos::AUTO);
             if (team_size > 0) { policy = TeamPolicy(static_cast<int>(pool_size), team_size); }
@@ -83,9 +80,7 @@ PerformanceMeasurer LabelPropagationKokkos::run(Hypergraph& hypergraph, int max_
             policy.set_scratch_size(0, Kokkos::PerTeam(shmem_bytes));
 
             Kokkos::parallel_for(
-                label,
-                policy,
-                KOKKOS_LAMBDA(const Member& team) {
+                label, policy, KOKKOS_LAMBDA(const Member& team) {
                     const std::size_t pool_index = static_cast<std::size_t>(team.league_rank());
                     if (pool_index >= pool_size) { return; }
 
@@ -101,13 +96,11 @@ PerformanceMeasurer LabelPropagationKokkos::run(Hypergraph& hypergraph, int max_
                     Kokkos::parallel_for(Kokkos::TeamThreadRange(team, max_labels), [&](int lab) { label_weights(lab) = 0.0f; });
                     team.team_barrier();
 
-                    Kokkos::parallel_for(
-                        Kokkos::TeamThreadRange(team, static_cast<int>(degree)),
-                        [&](int offset) {
-                            const auto vertex = kokkos_hg.edge_vertices(vertex_begin + static_cast<std::size_t>(offset));
-                            const int lab = static_cast<int>(vertex_labels(vertex));
-                            if (lab >= 0 && lab < max_labels) { Kokkos::atomic_add(&label_weights(lab), 1.0f); }
-                        });
+                    Kokkos::parallel_for(Kokkos::TeamThreadRange(team, static_cast<int>(degree)), [&](int offset) {
+                        const auto vertex = kokkos_hg.edge_vertices(vertex_begin + static_cast<std::size_t>(offset));
+                        const int lab = static_cast<int>(vertex_labels(vertex));
+                        if (lab >= 0 && lab < max_labels) { Kokkos::atomic_add(&label_weights(lab), 1.0f); }
+                    });
                     team.team_barrier();
 
                     if (team.team_rank() == 0) {
@@ -125,19 +118,14 @@ PerformanceMeasurer LabelPropagationKokkos::run(Hypergraph& hypergraph, int max_
                 });
         };
 
-        auto run_edge_pool_vector = [&](const char* label,
-                                        const Kokkos::View<std::uint32_t*, MemorySpace>& pool_view,
-                                        std::size_t pool_size,
-                                        int vector_length) {
+        auto run_edge_pool_vector = [&](const char* label, const Kokkos::View<std::uint32_t*, MemorySpace>& pool_view, std::size_t pool_size, int vector_length) {
             if (pool_size == 0) { return; }
             TeamPolicy policy(static_cast<int>(pool_size), 1, vector_length);
             const std::size_t shmem_bytes = Kokkos::View<float*, ScratchSpace>::shmem_size(static_cast<std::size_t>(max_labels));
             policy.set_scratch_size(0, Kokkos::PerTeam(shmem_bytes));
 
             Kokkos::parallel_for(
-                label,
-                policy,
-                KOKKOS_LAMBDA(const Member& team) {
+                label, policy, KOKKOS_LAMBDA(const Member& team) {
                     const std::size_t pool_index = static_cast<std::size_t>(team.league_rank());
                     if (pool_index >= pool_size) { return; }
 
@@ -151,13 +139,11 @@ PerformanceMeasurer LabelPropagationKokkos::run(Hypergraph& hypergraph, int max_
                     team.team_barrier();
 
                     const int degree = static_cast<int>(vertex_end - vertex_begin);
-                    Kokkos::parallel_for(
-                        Kokkos::ThreadVectorRange(team, degree),
-                        [&](int offset) {
-                            const auto vertex = kokkos_hg.edge_vertices(vertex_begin + static_cast<std::size_t>(offset));
-                            const int lab = static_cast<int>(vertex_labels(vertex));
-                            if (lab >= 0 && lab < max_labels) { Kokkos::atomic_add(&label_weights(lab), 1.0f); }
-                        });
+                    Kokkos::parallel_for(Kokkos::ThreadVectorRange(team, degree), [&](int offset) {
+                        const auto vertex = kokkos_hg.edge_vertices(vertex_begin + static_cast<std::size_t>(offset));
+                        const int lab = static_cast<int>(vertex_labels(vertex));
+                        if (lab >= 0 && lab < max_labels) { Kokkos::atomic_add(&label_weights(lab), 1.0f); }
+                    });
                     team.team_barrier();
 
                     if (team.team_rank() == 0) {
@@ -175,14 +161,10 @@ PerformanceMeasurer LabelPropagationKokkos::run(Hypergraph& hypergraph, int max_
                 });
         };
 
-        auto run_edge_pool_wi = [&](const char* label,
-                                    const Kokkos::View<std::uint32_t*, MemorySpace>& pool_view,
-                                    std::size_t pool_size) {
+        auto run_edge_pool_wi = [&](const char* label, const Kokkos::View<std::uint32_t*, MemorySpace>& pool_view, std::size_t pool_size) {
             if (pool_size == 0) { return; }
             Kokkos::parallel_for(
-                label,
-                Kokkos::RangePolicy<ExecutionSpace, std::size_t>(0, pool_size),
-                KOKKOS_LAMBDA(const std::size_t idx) {
+                label, Kokkos::RangePolicy<ExecutionSpace, std::size_t>(0, pool_size), KOKKOS_LAMBDA(const std::size_t idx) {
                     const Hypergraph::EdgeId edge = static_cast<Hypergraph::EdgeId>(pool_view(idx));
                     if (edge >= kokkos_hg.num_edges) { return; }
                     const std::size_t vertex_begin = kokkos_hg.edge_offsets(edge);
@@ -215,10 +197,7 @@ PerformanceMeasurer LabelPropagationKokkos::run(Hypergraph& hypergraph, int max_
         run_edge_pool_wi("edge_update_wi_pool", exec_pool.wi_pool_edges, exec_pool.wi_pool_edges_size);
 
         std::size_t iteration_changes = 0;
-        auto run_vertex_pool_team = [&](const char* label,
-                                        const Kokkos::View<std::uint32_t*, MemorySpace>& pool_view,
-                                        std::size_t pool_size,
-                                        int team_size) -> std::size_t {
+        auto run_vertex_pool_team = [&](const char* label, const Kokkos::View<std::uint32_t*, MemorySpace>& pool_view, std::size_t pool_size, int team_size) -> std::size_t {
             if (pool_size == 0) { return 0; }
             TeamPolicy policy(static_cast<int>(pool_size), Kokkos::AUTO);
             if (team_size > 0) { policy = TeamPolicy(static_cast<int>(pool_size), team_size); }
@@ -244,13 +223,11 @@ PerformanceMeasurer LabelPropagationKokkos::run(Hypergraph& hypergraph, int max_
                     Kokkos::parallel_for(Kokkos::TeamThreadRange(team, max_labels), [&](int lab) { label_weights(lab) = 0.0f; });
                     team.team_barrier();
 
-                    Kokkos::parallel_for(
-                        Kokkos::TeamThreadRange(team, static_cast<int>(incident_degree)),
-                        [&](int offset) {
-                            const auto edge = kokkos_hg.vertex_edges(edge_begin + static_cast<std::size_t>(offset));
-                            const int lab = static_cast<int>(edge_labels(edge));
-                            if (lab >= 0 && lab < max_labels) { Kokkos::atomic_add(&label_weights(lab), 1.0f); }
-                        });
+                    Kokkos::parallel_for(Kokkos::TeamThreadRange(team, static_cast<int>(incident_degree)), [&](int offset) {
+                        const auto edge = kokkos_hg.vertex_edges(edge_begin + static_cast<std::size_t>(offset));
+                        const int lab = static_cast<int>(edge_labels(edge));
+                        if (lab >= 0 && lab < max_labels) { Kokkos::atomic_add(&label_weights(lab), 1.0f); }
+                    });
                     team.team_barrier();
 
                     if (team.team_rank() == 0) {
@@ -275,10 +252,7 @@ PerformanceMeasurer LabelPropagationKokkos::run(Hypergraph& hypergraph, int max_
             return pool_changes;
         };
 
-        auto run_vertex_pool_vector = [&](const char* label,
-                                          const Kokkos::View<std::uint32_t*, MemorySpace>& pool_view,
-                                          std::size_t pool_size,
-                                          int vector_length) -> std::size_t {
+        auto run_vertex_pool_vector = [&](const char* label, const Kokkos::View<std::uint32_t*, MemorySpace>& pool_view, std::size_t pool_size, int vector_length) -> std::size_t {
             if (pool_size == 0) { return 0; }
             std::size_t pool_changes = 0;
             TeamPolicy policy(static_cast<int>(pool_size), 1, vector_length);
@@ -302,13 +276,11 @@ PerformanceMeasurer LabelPropagationKokkos::run(Hypergraph& hypergraph, int max_
                     team.team_barrier();
 
                     const int incident_degree = static_cast<int>(edge_end - edge_begin);
-                    Kokkos::parallel_for(
-                        Kokkos::ThreadVectorRange(team, incident_degree),
-                        [&](int offset) {
-                            const auto edge = kokkos_hg.vertex_edges(edge_begin + static_cast<std::size_t>(offset));
-                            const int lab = static_cast<int>(edge_labels(edge));
-                            if (lab >= 0 && lab < max_labels) { Kokkos::atomic_add(&label_weights(lab), 1.0f); }
-                        });
+                    Kokkos::parallel_for(Kokkos::ThreadVectorRange(team, incident_degree), [&](int offset) {
+                        const auto edge = kokkos_hg.vertex_edges(edge_begin + static_cast<std::size_t>(offset));
+                        const int lab = static_cast<int>(edge_labels(edge));
+                        if (lab >= 0 && lab < max_labels) { Kokkos::atomic_add(&label_weights(lab), 1.0f); }
+                    });
                     team.team_barrier();
 
                     if (team.team_rank() == 0) {
@@ -333,9 +305,7 @@ PerformanceMeasurer LabelPropagationKokkos::run(Hypergraph& hypergraph, int max_
             return pool_changes;
         };
 
-        auto run_vertex_pool_wi = [&](const char* label,
-                                      const Kokkos::View<std::uint32_t*, MemorySpace>& pool_view,
-                                      std::size_t pool_size) -> std::size_t {
+        auto run_vertex_pool_wi = [&](const char* label, const Kokkos::View<std::uint32_t*, MemorySpace>& pool_view, std::size_t pool_size) -> std::size_t {
             if (pool_size == 0) { return 0; }
             std::size_t local_changes = 0;
             Kokkos::parallel_reduce(
@@ -425,9 +395,9 @@ LabelPropagationKokkos::ExecutionPool LabelPropagationKokkos::create_execution_p
 
     for (std::size_t e = 0; e < num_edges; ++e) {
         const auto edge_size = hypergraph.get_hyperedge(e).size();
-        if (edge_size > 256) {
+        if (edge_size > 1024) {
             wg_pool_edges_vec.push_back(static_cast<std::uint32_t>(e));
-        } else if (edge_size > 32) {
+        } else if (edge_size > 256) {
             sg_pool_edges_vec.push_back(static_cast<std::uint32_t>(e));
         } else {
             wi_pool_edges_vec.push_back(static_cast<std::uint32_t>(e));
