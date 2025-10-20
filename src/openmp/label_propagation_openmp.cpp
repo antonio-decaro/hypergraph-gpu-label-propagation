@@ -1,18 +1,16 @@
 #include "label_propagation_openmp.hpp"
 #include <algorithm>
 #include <chrono>
+#include <cstdint>
 #include <iostream>
 #include <stdexcept>
-#include <cstdint>
 #include <vector>
 
 namespace {
 struct ExecutionPool {
     std::vector<std::uint32_t> wg_pool_edges;
-    std::vector<std::uint32_t> sg_pool_edges;
     std::vector<std::uint32_t> wi_pool_edges;
     std::vector<std::uint32_t> wg_pool_vertices;
-    std::vector<std::uint32_t> sg_pool_vertices;
     std::vector<std::uint32_t> wi_pool_vertices;
 };
 
@@ -25,8 +23,6 @@ ExecutionPool create_execution_pool(const Hypergraph& hypergraph) {
         const auto edge_size = hypergraph.get_hyperedge(e).size();
         if (edge_size > 256) {
             pool.wg_pool_edges.push_back(static_cast<std::uint32_t>(e));
-        } else if (edge_size > 32) {
-            pool.sg_pool_edges.push_back(static_cast<std::uint32_t>(e));
         } else {
             pool.wi_pool_edges.push_back(static_cast<std::uint32_t>(e));
         }
@@ -36,8 +32,6 @@ ExecutionPool create_execution_pool(const Hypergraph& hypergraph) {
         const auto incident_size = hypergraph.get_incident_edges(v).size();
         if (incident_size > 1024) {
             pool.wg_pool_vertices.push_back(static_cast<std::uint32_t>(v));
-        } else if (incident_size > 256) {
-            pool.sg_pool_vertices.push_back(static_cast<std::uint32_t>(v));
         } else {
             pool.wi_pool_vertices.push_back(static_cast<std::uint32_t>(v));
         }
@@ -101,23 +95,20 @@ PerformanceMeasurer LabelPropagationOpenMP::run(Hypergraph& hypergraph, int max_
     constexpr int MAX_TEAM_SIZE = 1024;
     int wgs = device_.workgroup_size > 0 ? static_cast<int>(device_.workgroup_size) : 256;
     wgs = std::min(wgs, MAX_TEAM_SIZE);
-    const int sg_threads = std::max(1, std::min(wgs, 32));
-    constexpr int wi_threads = 1;
-
-    for (int iteration = 0; iteration < max_iterations; ++iteration) {
-        Hypergraph::Label* vlabels = vertex_labels.data();
-        Hypergraph::Label* elabels = edge_labels.data();
-        const Hypergraph::VertexId* edge_vertices = flat.edge_vertices.data();
-        const std::size_t* edge_offsets = flat.edge_offsets.data();
-        const Hypergraph::EdgeId* vertex_edges = flat.vertex_edges.data();
-        const std::size_t* vertex_offsets = flat.vertex_offsets.data();
-
-        auto run_edge_pool = [&](const std::vector<std::uint32_t>& pool_edges, int team_size) {
+    Hypergraph::Label* vlabels = vertex_labels.data();
+    Hypergraph::Label* elabels = edge_labels.data();
+    const Hypergraph::VertexId* edge_vertices = flat.edge_vertices.data();
+    const std::size_t* edge_offsets = flat.edge_offsets.data();
+    const Hypergraph::EdgeId* vertex_edges = flat.vertex_edges.data();
+    const std::size_t* vertex_offsets = flat.vertex_offsets.data();
+#pragma omp target data map(to : edge_vertices[0 : edge_vertices_size], edge_offsets[0 : edge_offsets_size], vertex_edges[0 : vertex_edges_size], vertex_offsets[0 : vertex_offsets_size]) map(tofrom : vlabels[0 : num_vertices], elabels[0 : num_edges])
+    {
+        auto run_edge_pool_wg = [&](const std::vector<std::uint32_t>& pool_edges, int team_size) {
             if (pool_edges.empty()) { return; }
             team_size = std::max(1, team_size);
             const std::size_t pool_size = pool_edges.size();
             const std::uint32_t* pool_ptr = pool_edges.data();
-#pragma omp target teams num_teams(pool_size) thread_limit(team_size) map(to : vlabels[0 : num_vertices], edge_vertices[0 : edge_vertices_size], edge_offsets[0 : edge_offsets_size], pool_ptr[0 : pool_size]) map(tofrom : elabels[0 : num_edges])
+#pragma omp target teams num_teams(pool_size) thread_limit(team_size) map(present, to : edge_vertices[0 : edge_vertices_size], edge_offsets[0 : edge_offsets_size]) map(present, tofrom : vlabels[0 : num_vertices], elabels[0 : num_edges]) map(to : pool_ptr[0 : pool_size])
             {
                 const std::size_t team_id = static_cast<std::size_t>(omp_get_team_num());
                 if (team_id < pool_size) {
@@ -125,50 +116,63 @@ PerformanceMeasurer LabelPropagationOpenMP::run(Hypergraph& hypergraph, int max_
                     const std::size_t v_begin = edge_offsets[e];
                     const std::size_t v_end = edge_offsets[e + 1];
                     const std::size_t degree = v_end - v_begin;
-                    float counts[MAX_LABELS_CAP];
-#pragma omp parallel shared(counts)
-                    {
-                        const int tid = omp_get_thread_num();
-                        const int team_threads = omp_get_num_threads();
-                        for (int lab = tid; lab < max_labels; lab += team_threads) { counts[lab] = 0.0f; }
-#pragma omp barrier
-                        for (std::size_t idx = tid; idx < degree; idx += static_cast<std::size_t>(team_threads)) {
-                            const auto vertex = edge_vertices[v_begin + idx];
-                            const int lab = static_cast<int>(vlabels[vertex]);
-                            if (lab >= 0 && lab < max_labels) {
-#pragma omp atomic update
-                                counts[lab] += 1.0f;
-                            }
-                        }
-#pragma omp barrier
-                        if (tid == 0) {
-                            Hypergraph::Label best = elabels[e];
-                            float best_w = -1.0f;
-                            for (int lab = 0; lab < max_labels; ++lab) {
-                                const float w = counts[lab];
-                                if (w > best_w) {
-                                    best_w = w;
-                                    best = static_cast<Hypergraph::Label>(lab);
-                                }
-                            }
-                            elabels[e] = best;
+                    float counts[MAX_LABELS_CAP] = {0.0f};
+#pragma omp parallel for reduction(+ : counts[:MAX_LABELS_CAP])
+                    for (std::size_t idx = 0; idx < degree; ++idx) {
+                        const auto vertex = edge_vertices[v_begin + idx];
+                        const int lab = static_cast<int>(vlabels[vertex]);
+                        if (lab >= 0 && lab < max_labels) { counts[lab] += 1.0f; }
+                    }
+                    Hypergraph::Label best = elabels[e];
+                    float best_w = -1.0f;
+                    for (int lab = 0; lab < max_labels; ++lab) {
+                        const float w = counts[lab];
+                        if (w > best_w) {
+                            best_w = w;
+                            best = static_cast<Hypergraph::Label>(lab);
                         }
                     }
+                    elabels[e] = best;
                 }
             }
         };
 
-        run_edge_pool(exec_pool.wg_pool_edges, wgs);
-        run_edge_pool(exec_pool.sg_pool_edges, sg_threads);
-        run_edge_pool(exec_pool.wi_pool_edges, wi_threads);
+        auto run_edge_pool_wi = [&](const std::vector<std::uint32_t>& pool_edges) {
+            if (pool_edges.empty()) { return; }
+            const std::size_t pool_size = pool_edges.size();
+            const std::uint32_t* pool_ptr = pool_edges.data();
+#pragma omp target teams distribute parallel for map(present, to : edge_vertices[0 : edge_vertices_size], edge_offsets[0 : edge_offsets_size]) map(present, tofrom : vlabels[0 : num_vertices], elabels[0 : num_edges]) map(to : pool_ptr[0 : pool_size])
+            for (std::size_t idx = 0; idx < pool_size; ++idx) {
+                const std::size_t e = static_cast<std::size_t>(pool_ptr[idx]);
+                const std::size_t v_begin = edge_offsets[e];
+                const std::size_t v_end = edge_offsets[e + 1];
+                float counts[MAX_LABELS_CAP] = {0.0f};
+                for (std::size_t v_idx = v_begin; v_idx < v_end; ++v_idx) {
+                    const auto vertex = edge_vertices[v_idx];
+                    const int lab = static_cast<int>(vlabels[vertex]);
+                    if (lab >= 0 && lab < max_labels) { counts[lab] += 1.0f; }
+                }
+                Hypergraph::Label best = elabels[e];
+                float best_w = -1.0f;
+                for (int lab = 0; lab < max_labels; ++lab) {
+                    const float w = counts[lab];
+                    if (w > best_w) {
+                        best_w = w;
+                        best = static_cast<Hypergraph::Label>(lab);
+                    }
+                }
+                elabels[e] = best;
+            }
+        };
 
-        std::size_t changes = 0;
-        auto run_vertex_pool = [&](const std::vector<std::uint32_t>& pool_vertices, int team_size) {
-            if (pool_vertices.empty()) { return; }
+        auto run_vertex_pool_wg = [&](const std::vector<std::uint32_t>& pool_vertices, int team_size) -> std::size_t {
+            if (pool_vertices.empty()) { return 0; }
             team_size = std::max(1, team_size);
             const std::size_t pool_size = pool_vertices.size();
             const std::uint32_t* pool_ptr = pool_vertices.data();
-#pragma omp target teams num_teams(pool_size) thread_limit(team_size) map(to : elabels[0 : num_edges], vertex_edges[0 : vertex_edges_size], vertex_offsets[0 : vertex_offsets_size], pool_ptr[0 : pool_size]) map(tofrom : vlabels[0 : num_vertices], changes)
+            std::vector<std::uint32_t> team_changes(pool_size, 0);
+            std::uint32_t* team_changes_ptr = team_changes.data();
+#pragma omp target teams num_teams(pool_size) thread_limit(team_size) map(present, to : vertex_edges[0 : vertex_edges_size], vertex_offsets[0 : vertex_offsets_size]) map(present, tofrom : vlabels[0 : num_vertices], elabels[0 : num_edges]) map(to : pool_ptr[0 : pool_size]) map(tofrom : team_changes_ptr[0 : pool_size])
             {
                 const std::size_t team_id = static_cast<std::size_t>(omp_get_team_num());
                 if (team_id < pool_size) {
@@ -176,59 +180,85 @@ PerformanceMeasurer LabelPropagationOpenMP::run(Hypergraph& hypergraph, int max_
                     const std::size_t e_begin = vertex_offsets[v];
                     const std::size_t e_end = vertex_offsets[v + 1];
                     const std::size_t degree = e_end - e_begin;
-                    float counts[MAX_LABELS_CAP];
-                    std::size_t team_changes = 0;
-#pragma omp parallel shared(counts, team_changes)
-                    {
-                        const int tid = omp_get_thread_num();
-                        const int team_threads = omp_get_num_threads();
-                        for (int lab = tid; lab < max_labels; lab += team_threads) { counts[lab] = 0.0f; }
-#pragma omp barrier
-                        for (std::size_t idx = tid; idx < degree; idx += static_cast<std::size_t>(team_threads)) {
-                            const auto edge = vertex_edges[e_begin + idx];
-                            const int lab = static_cast<int>(elabels[edge]);
-                            if (lab >= 0 && lab < max_labels) {
-#pragma omp atomic update
-                                counts[lab] += 1.0f;
-                            }
-                        }
-#pragma omp barrier
-                        if (tid == 0) {
-                            Hypergraph::Label current = vlabels[v];
-                            Hypergraph::Label best = current;
-                            float best_w = -1.0f;
-                            for (int lab = 0; lab < max_labels; ++lab) {
-                                const float w = counts[lab];
-                                if (w > best_w) {
-                                    best_w = w;
-                                    best = static_cast<Hypergraph::Label>(lab);
-                                }
-                            }
-                            if (best != current) {
-                                vlabels[v] = best;
-#pragma omp atomic update
-                                team_changes += 1;
-                            }
+                    float counts[MAX_LABELS_CAP] = {0.0f};
+#pragma omp parallel for reduction(+ : counts[:MAX_LABELS_CAP])
+                    for (std::size_t idx = 0; idx < degree; ++idx) {
+                        const auto edge = vertex_edges[e_begin + idx];
+                        const int lab = static_cast<int>(elabels[edge]);
+                        if (lab >= 0 && lab < max_labels) { counts[lab] += 1.0f; }
+                    }
+                    Hypergraph::Label current = vlabels[v];
+                    Hypergraph::Label best = current;
+                    float best_w = -1.0f;
+                    for (int lab = 0; lab < max_labels; ++lab) {
+                        const float w = counts[lab];
+                        if (w > best_w) {
+                            best_w = w;
+                            best = static_cast<Hypergraph::Label>(lab);
                         }
                     }
-#pragma omp atomic update
-                    changes += team_changes;
+                    if (best != current) {
+                        vlabels[v] = best;
+                        team_changes_ptr[team_id] = 1;
+                    }
                 }
             }
+            std::size_t local_changes = 0;
+            for (std::size_t i = 0; i < pool_size; ++i) { local_changes += team_changes[i]; }
+            return local_changes;
         };
 
-        run_vertex_pool(exec_pool.wg_pool_vertices, wgs);
-        run_vertex_pool(exec_pool.sg_pool_vertices, sg_threads);
-        run_vertex_pool(exec_pool.wi_pool_vertices, wi_threads);
+        auto run_vertex_pool_wi = [&](const std::vector<std::uint32_t>& pool_vertices) -> std::size_t {
+            if (pool_vertices.empty()) { return 0; }
+            const std::size_t pool_size = pool_vertices.size();
+            const std::uint32_t* pool_ptr = pool_vertices.data();
+            std::size_t local_changes = 0;
+#pragma omp target teams distribute parallel for map(present, to : vertex_edges[0 : vertex_edges_size], vertex_offsets[0 : vertex_offsets_size]) map(present, tofrom : vlabels[0 : num_vertices], elabels[0 : num_edges]) map(to : pool_ptr[0 : pool_size]) reduction(+ : local_changes)
+            for (std::size_t idx = 0; idx < pool_size; ++idx) {
+                const std::size_t v = static_cast<std::size_t>(pool_ptr[idx]);
+                const std::size_t e_begin = vertex_offsets[v];
+                const std::size_t e_end = vertex_offsets[v + 1];
+                float counts[MAX_LABELS_CAP] = {0.0f};
+                for (std::size_t e_idx = e_begin; e_idx < e_end; ++e_idx) {
+                    const auto edge = vertex_edges[e_idx];
+                    const int lab = static_cast<int>(elabels[edge]);
+                    if (lab >= 0 && lab < max_labels) { counts[lab] += 1.0f; }
+                }
+                Hypergraph::Label current = vlabels[v];
+                Hypergraph::Label best = current;
+                float best_w = -1.0f;
+                for (int lab = 0; lab < max_labels; ++lab) {
+                    const float w = counts[lab];
+                    if (w > best_w) {
+                        best_w = w;
+                        best = static_cast<Hypergraph::Label>(lab);
+                    }
+                }
+                if (best != current) {
+                    vlabels[v] = best;
+                    local_changes += 1;
+                }
+            }
+            return local_changes;
+        };
 
-        const double change_ratio = static_cast<double>(changes) / static_cast<double>(num_vertices);
-        if (change_ratio < tolerance) {
-            std::cout << "Converged after " << iteration + 1 << " iterations\n";
-            converged = true;
-            iterations_completed = iteration + 1;
-            break;
+        for (int iteration = 0; iteration < max_iterations; ++iteration) {
+            run_edge_pool_wg(exec_pool.wg_pool_edges, wgs);
+            run_edge_pool_wi(exec_pool.wi_pool_edges);
+
+            std::size_t changes = 0;
+            changes += run_vertex_pool_wg(exec_pool.wg_pool_vertices, wgs);
+            changes += run_vertex_pool_wi(exec_pool.wi_pool_vertices);
+
+            const double change_ratio = static_cast<double>(changes) / static_cast<double>(num_vertices);
+            if (change_ratio < tolerance) {
+                std::cout << "Converged after " << iteration + 1 << " iterations\n";
+                converged = true;
+                iterations_completed = iteration + 1;
+                break;
+            }
+            if ((iteration + 1) % 10 == 0) { std::cout << "Iteration " << iteration + 1 << " completed\n"; }
         }
-        if ((iteration + 1) % 10 == 0) { std::cout << "Iteration " << iteration + 1 << " completed\n"; }
     }
 
     if (!converged) { iterations_completed = max_iterations; }
