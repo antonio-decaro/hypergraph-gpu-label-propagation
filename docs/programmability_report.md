@@ -1,94 +1,66 @@
-# Hypergraph Label Propagation: Programmability Analysis (SYCL, OpenMP, Kokkos)
+# Hypergraph Label Propagation – Programmability Report
 
-This report compares programmability aspects across three implementations of the same algorithm (hypergraph label propagation): SYCL, OpenMP target offload, and Kokkos. It includes code size metrics, core-kernel structure, memory management patterns, tuning knobs, portability, and developer ergonomics.
+This document compares the three accelerator back ends currently in the repository (SYCL, OpenMP target offload, Kokkos) with emphasis on programmability and the code volume required to implement the label propagation algorithm after the latest refactors.
 
-## Executive Summary
+## TL;DR
 
-- OpenMP target is the most compact for this workload; minimal boilerplate due to pragmas and direct use of host containers.
-- SYCL offers explicit control of device memory (USM), local memory, and kernel launch configuration with good portability; code size sits between OpenMP and Kokkos.
-- Kokkos is slightly more verbose than SYCL (especially with TeamPolicy + team scratch), but integrates deeply with C++ and provides backend portability (CUDA/HIP/OpenMP) via a single API.
+- **OpenMP target** remains the least verbose (∼280 LOC for the core translation unit) and is quick to prototype but relies on careful `map` management and lacks explicit subgroup control.
+- **SYCL** offers the most concise expression of hierarchical parallelism (∼160 LOC in the core header) and first-class subgroup/local memory support, at the cost of explicit queue/USM management.
+- **Kokkos** is now the most feature-rich front end (∼530 LOC) with explicit execution-pool tiers (team, vector, scalar) and portable scratch usage; verbosity grows with templates and manual pool plumbing, but it gives the broadest backend coverage.
 
-## Code Size Metrics
+## Code Size Snapshot
 
-Measured on current repo state; totals include `.hpp + .cpp` for the algorithm, excluding mains.
+Measured with `wc -l` on 2024-XX-XX commit state; counts include implementation files only (not headers other than SYCL’s single header).
 
-SLOC definition used here: counts non-blank, non-comment lines (blank lines and `//` comment-only lines are excluded). It serves as a rough proxy for code volume, not quality or performance.
+| Model  | Core Files                                                                 | LOC |
+|--------|-----------------------------------------------------------------------------|-----|
+| SYCL   | `src/sycl/label_propagation_sycl.hpp`                                       | 157 |
+| OpenMP | `src/openmp/label_propagation_openmp.cpp`                                   | 282 |
+| Kokkos | `src/kokkos/label_propagation_kokkos.cpp`                                   | 527 |
 
-- SYCL: 103 + 174 = 277 total lines; 208 SLOC
-  - Files: `src/sycl/label_propagation_sycl.hpp`, `src/sycl/label_propagation_sycl.cpp`
-  - Main: 61 total lines; 46 SLOC (`src/sycl/main_sycl.cpp:1`)
-- OpenMP: 30 + 140 = 170 total lines; 141 SLOC
-  - Files: `src/openmp/label_propagation_openmp.hpp`, `src/openmp/label_propagation_openmp.cpp`
-  - Main: 48 total lines; 35 SLOC (`src/openmp/main_openmp.cpp:1`)
-- Kokkos: 63 + 234 = 297 total lines; 221 SLOC
-  - Files: `src/kokkos/label_propagation_kokkos.hpp`, `src/kokkos/label_propagation_kokkos.cpp`
-  - Main: 52 total lines; 40 SLOC (`src/kokkos/main_kokkos.cpp:1`)
+The main entry points (`src/*/main_*.cpp`) add between 45–60 LOC each and were not counted in the table. SLOC (non-comment, non-blank) roughly tracks the same ordering: SYCL < OpenMP << Kokkos.
 
-Approximate “kernel/core-logic” region sizes (iteration loop and kernels):
-- SYCL core: ~80 SLOC in `run_iteration_sycl()` `src/sycl/label_propagation_sycl.cpp:1`
-- OpenMP core: ~91 SLOC in iteration loop `src/openmp/label_propagation_openmp.cpp:1`
-- Kokkos core: ~99 SLOC in iteration loop `src/kokkos/label_propagation_kokkos.cpp:1`
+## Kernel & Memory Model Comparison
 
-## Kernel Structure and Memory Patterns
+- **SYCL (`src/sycl/label_propagation_sycl.hpp`)**
+  - Two `parallel_for` kernels per iteration launched as `nd_range`.
+  - Uses USM to keep vertex/edge arrays contiguous; `local_accessor` provides scratchpad memory per workgroup.
+  - Sub-group operations available; current code relies on workgroup-level synchronization.
+  - Data movement is explicit (queue copies) but deterministic.
 
-### SYCL
-- Device selection and queue management in `LabelPropagationSYCL` constructor.
-- USM allocations for flattened hypergraph and label arrays.
-- Two kernels per iteration (`nd_range` launches):
-  - Edge update using `local_accessor` for per-work-item label counts; `src/sycl/label_propagation_sycl.cpp:1`.
-  - Vertex update using `local_accessor` and a SYCL reduction over changes; `src/sycl/label_propagation_sycl.cpp:1`.
-- Pros: precise control of launch parameters and local memory; portable across backends; standard C++ with SYCL extensions.
-- Cons: explicit memory management and queue orchestration adds boilerplate; learning curve for accessors/reductions.
+- **OpenMP Target (`src/openmp/label_propagation_openmp.cpp`)**
+  - Execution pools split edges/vertices between workgroup-style teams and scalar work-items.
+  - `target data` region keeps the flattened hypergraph resident; each iteration runs `target teams` kernels with reductions.
+  - Memory management is implicit via `map` clauses; correctness hinges on matching `present` arguments and reduction semantics.
+  - No native subgroup abstraction, so cooperative work relies on nested `omp parallel` regions and atomics or reduction clauses.
 
-### OpenMP Target
-- Uses host vectors directly with `map` clauses to move data.
-- Two offload regions per iteration with `target teams distribute parallel for` and a reduction for changes; `src/openmp/label_propagation_openmp.cpp:1`.
-- Pros: minimal code changes from CPU version; very concise; familiar pragmas for many HPC devs; easy incremental adoption.
-- Cons: portability depends on compiler offload maturity; fine-grained control (e.g., shared memory, groups) is less explicit; tricky `map` tuning for performance.
+- **Kokkos (`src/kokkos/label_propagation_kokkos.cpp`)**
+  - Pools now have three tiers: full team (`TeamPolicy` with scratch), vector (`TeamPolicy` with `ThreadVectorRange`), and scalar (`RangePolicy`).
+  - Device data stored in `View`s with host mirrors; scratch memory allocated per team for label histograms.
+  - Explicit control of team size, vector length, and scratch footprint; reductions performed with `parallel_reduce`.
+  - Additional boilerplate for execution pool creation and mirror copies, but portable across CUDA/HIP/OpenMP back ends.
 
-### Kokkos
-- Flattens hypergraph into Kokkos `View`s with host mirrors and `deep_copy`.
-- Two phases per iteration implemented with `TeamPolicy`:
-  - Edge update: per-team scratch memory (shared) sized to `MAX_LABELS * team_size`, each thread uses a slice for counts; `src/kokkos/label_propagation_kokkos.cpp:1`.
-  - Vertex update: same scratch usage and a `parallel_reduce` over `TeamThreadRange` to accumulate changes; `src/kokkos/label_propagation_kokkos.cpp:1`.
-- Pros: Single-source performance-portable C++; explicit control over teams, scratch (shared) memory; integrates well with C++ tooling.
-- Cons: Slightly more verbose than SYCL; mental model of `TeamPolicy`, scratch sizing, and mirrors/deep_copy required.
+## Programmability Discussion
 
-## Tuning Knobs and Portability
+| Aspect              | SYCL                                             | OpenMP Target                                     | Kokkos                                                    |
+|---------------------|--------------------------------------------------|---------------------------------------------------|-----------------------------------------------------------|
+| Hierarchical control| `nd_range`, sub-groups, local memory             | Teams/threads only; no subgroup primitive         | Team / thread / vector tiers, configurable scratch        |
+| Memory management   | Explicit USM allocations, queue copies           | Host vectors with `map` clauses                   | `View`/mirror pairs, `deep_copy`, scratch allocations     |
+| Data residency      | Manual but fine-grained                          | `target data` keeps arrays on device automatically| Managed through Views; persistent across kernels          |
+| Tuning knobs        | Workgroup size, local memory, subgroup width     | `num_teams`, `thread_limit`, clause tuning        | Team size, vector length, scratch size, execution space   |
+| Tooling & portability| oneAPI/hipSYCL/ComputeCpp (CPU, GPU, FPGA)      | Depends on compiler offload support (Clang, GCC)  | Single-source across CUDA, HIP, SYCL*, OpenMP, Serial     |
+| Code verbosity      | Low                                              | Moderate                                          | High (due to templates and explicit pools)                |
 
-- SYCL
-  - Workgroup size: `--workgroup-size` controls `nd_range` local size.
-  - Local memory use mirrors CUDA shared mem via `local_accessor`.
-  - Backends: Level Zero, OpenCL, CUDA, HIP (depends on toolchain).
+## Maintenance Notes
 
-- OpenMP
-  - Teams/threads: controlled indirectly by environment variables and pragmas; mapping clauses heavily influence performance.
-  - Portability: relies on compiler’s target offload support (Clang, GCC, vendor compilers).
-
-- Kokkos
-  - Team size: derived from `--workgroup-size`; backend chooses vector length.
-  - Scratch memory: set via `policy.set_scratch_size(PerTeam(...))`.
-  - Backends: CUDA, HIP, SYCL (experimental in some versions), OpenMP, Serial.
-
-## Developer Ergonomics
-
-- Build complexity: SYCL and Kokkos need additional toolchains or libraries; OpenMP often works with system compilers that support target offload.
-- Memory management: OpenMP abstracts transfers via `map`; SYCL/Kokkos explicitly manage device memory (USM/Views) but yield more control.
-- Debugging: OpenMP pragmas are easy to disable; SYCL has tools like `sycl-ls`, profilers from vendors; Kokkos has `Kokkos::Tools` and backend profilers.
-- Maintenance: OpenMP is shortest; SYCL/Kokkos provide clearer performance tuning knobs and explicit data movement which can scale better as complexity grows.
-
-## Algorithm Parity
-
-All backends implement the same two-phase label propagation with a bounded label space (`MAX_LABELS=10`) and majority voting on incident elements. The SYCL and Kokkos versions leverage on-chip memory (local/scratch) to hold per-thread label counts, matching the same optimization.
-
-## Recommendations
-
-- If lowest development effort is key and compilers support target well: OpenMP target is attractive.
-- For cross-vendor, modern C++ with explicit control and good ecosystem: SYCL is a solid choice.
-- For HPC C++ projects seeking long-term performance portability across accelerators with single API: Kokkos provides a strong balance, at modest extra verbosity.
+- The custom execution pool logic dominates all three implementations. Factoring pool creation and iteration scaffolding into shared utilities could reduce duplication and LOC in every backend.
+- SYCL and Kokkos now share the same conceptual tiers (workgroup/team, subgroup/vector, work-item/scalar). Maintaining equivalent behavior requires keeping shared constants (e.g., subgroup size, label cap) synchronized.
+- OpenMP relies on pragmatic caching (`target data`), but the `present` clauses must be kept consistent as the data structures evolve; regression tests that exercise empty pools and small hypergraphs are recommended.
 
 ## File References
 
-- SYCL implementation entry points: `src/sycl/label_propagation_sycl.hpp:1`, `src/sycl/label_propagation_sycl.cpp:1`, `src/sycl/main_sycl.cpp:1`
-- OpenMP implementation entry points: `src/openmp/label_propagation_openmp.hpp:1`, `src/openmp/label_propagation_openmp.cpp:1`, `src/openmp/main_openmp.cpp:1`
-- Kokkos implementation entry points: `src/kokkos/label_propagation_kokkos.hpp:1`, `src/kokkos/label_propagation_kokkos.cpp:1`, `src/kokkos/main_kokkos.cpp:1`
+- SYCL backend: `src/sycl/label_propagation_sycl.hpp`
+- OpenMP backend: `src/openmp/label_propagation_openmp.cpp`
+- Kokkos backend: `src/kokkos/label_propagation_kokkos.cpp`
+
+For entry points and CLI wiring, refer to `src/sycl/main_sycl.cpp`, `src/openmp/main_openmp.cpp`, and `src/kokkos/main_kokkos.cpp`.
