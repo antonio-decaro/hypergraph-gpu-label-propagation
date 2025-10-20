@@ -21,7 +21,7 @@ ExecutionPool create_execution_pool(const Hypergraph& hypergraph) {
 
     for (std::size_t e = 0; e < num_edges; ++e) {
         const auto edge_size = hypergraph.get_hyperedge(e).size();
-        if (edge_size > 256) {
+        if (edge_size > 1024) {
             pool.wg_pool_edges.push_back(static_cast<std::uint32_t>(e));
         } else {
             pool.wi_pool_edges.push_back(static_cast<std::uint32_t>(e));
@@ -101,14 +101,16 @@ PerformanceMeasurer LabelPropagationOpenMP::run(Hypergraph& hypergraph, int max_
     const std::size_t* edge_offsets = flat.edge_offsets.data();
     const Hypergraph::EdgeId* vertex_edges = flat.vertex_edges.data();
     const std::size_t* vertex_offsets = flat.vertex_offsets.data();
-#pragma omp target data map(to : edge_vertices[0 : edge_vertices_size], edge_offsets[0 : edge_offsets_size], vertex_edges[0 : vertex_edges_size], vertex_offsets[0 : vertex_offsets_size]) map(tofrom : vlabels[0 : num_vertices], elabels[0 : num_edges])
+#pragma omp target data map(to : edge_vertices[0 : edge_vertices_size], edge_offsets[0 : edge_offsets_size], vertex_edges[0 : vertex_edges_size], vertex_offsets[0 : vertex_offsets_size])             \
+    map(tofrom : vlabels[0 : num_vertices], elabels[0 : num_edges])
     {
         auto run_edge_pool_wg = [&](const std::vector<std::uint32_t>& pool_edges, int team_size) {
             if (pool_edges.empty()) { return; }
             team_size = std::max(1, team_size);
             const std::size_t pool_size = pool_edges.size();
             const std::uint32_t* pool_ptr = pool_edges.data();
-#pragma omp target teams num_teams(pool_size) thread_limit(team_size) map(present, to : edge_vertices[0 : edge_vertices_size], edge_offsets[0 : edge_offsets_size]) map(present, tofrom : vlabels[0 : num_vertices], elabels[0 : num_edges]) map(to : pool_ptr[0 : pool_size])
+#pragma omp target teams num_teams(pool_size) thread_limit(team_size) map(present, to : edge_vertices[0 : edge_vertices_size], edge_offsets[0 : edge_offsets_size])                                    \
+    map(present, tofrom : vlabels[0 : num_vertices], elabels[0 : num_edges]) map(to : pool_ptr[0 : pool_size])
             {
                 const std::size_t team_id = static_cast<std::size_t>(omp_get_team_num());
                 if (team_id < pool_size) {
@@ -117,7 +119,7 @@ PerformanceMeasurer LabelPropagationOpenMP::run(Hypergraph& hypergraph, int max_
                     const std::size_t v_end = edge_offsets[e + 1];
                     const std::size_t degree = v_end - v_begin;
                     float counts[MAX_LABELS_CAP] = {0.0f};
-#pragma omp parallel for reduction(+ : counts[:MAX_LABELS_CAP])
+#pragma omp parallel for reduction(+ : counts[ : MAX_LABELS_CAP])
                     for (std::size_t idx = 0; idx < degree; ++idx) {
                         const auto vertex = edge_vertices[v_begin + idx];
                         const int lab = static_cast<int>(vlabels[vertex]);
@@ -141,7 +143,8 @@ PerformanceMeasurer LabelPropagationOpenMP::run(Hypergraph& hypergraph, int max_
             if (pool_edges.empty()) { return; }
             const std::size_t pool_size = pool_edges.size();
             const std::uint32_t* pool_ptr = pool_edges.data();
-#pragma omp target teams distribute parallel for map(present, to : edge_vertices[0 : edge_vertices_size], edge_offsets[0 : edge_offsets_size]) map(present, tofrom : vlabels[0 : num_vertices], elabels[0 : num_edges]) map(to : pool_ptr[0 : pool_size])
+#pragma omp target teams distribute parallel for map(present, to : edge_vertices[0 : edge_vertices_size], edge_offsets[0 : edge_offsets_size])                                                         \
+    map(present, tofrom : vlabels[0 : num_vertices], elabels[0 : num_edges]) map(to : pool_ptr[0 : pool_size])
             for (std::size_t idx = 0; idx < pool_size; ++idx) {
                 const std::size_t e = static_cast<std::size_t>(pool_ptr[idx]);
                 const std::size_t v_begin = edge_offsets[e];
@@ -172,7 +175,8 @@ PerformanceMeasurer LabelPropagationOpenMP::run(Hypergraph& hypergraph, int max_
             const std::uint32_t* pool_ptr = pool_vertices.data();
             std::vector<std::uint32_t> team_changes(pool_size, 0);
             std::uint32_t* team_changes_ptr = team_changes.data();
-#pragma omp target teams num_teams(pool_size) thread_limit(team_size) map(present, to : vertex_edges[0 : vertex_edges_size], vertex_offsets[0 : vertex_offsets_size]) map(present, tofrom : vlabels[0 : num_vertices], elabels[0 : num_edges]) map(to : pool_ptr[0 : pool_size]) map(tofrom : team_changes_ptr[0 : pool_size])
+#pragma omp target teams num_teams(pool_size) thread_limit(team_size) map(present, to : vertex_edges[0 : vertex_edges_size], vertex_offsets[0 : vertex_offsets_size])                                  \
+    map(present, tofrom : vlabels[0 : num_vertices], elabels[0 : num_edges]) map(to : pool_ptr[0 : pool_size]) map(tofrom : team_changes_ptr[0 : pool_size])
             {
                 const std::size_t team_id = static_cast<std::size_t>(omp_get_team_num());
                 if (team_id < pool_size) {
@@ -181,7 +185,7 @@ PerformanceMeasurer LabelPropagationOpenMP::run(Hypergraph& hypergraph, int max_
                     const std::size_t e_end = vertex_offsets[v + 1];
                     const std::size_t degree = e_end - e_begin;
                     float counts[MAX_LABELS_CAP] = {0.0f};
-#pragma omp parallel for reduction(+ : counts[:MAX_LABELS_CAP])
+#pragma omp parallel for reduction(+ : counts[ : MAX_LABELS_CAP])
                     for (std::size_t idx = 0; idx < degree; ++idx) {
                         const auto edge = vertex_edges[e_begin + idx];
                         const int lab = static_cast<int>(elabels[edge]);
@@ -213,7 +217,8 @@ PerformanceMeasurer LabelPropagationOpenMP::run(Hypergraph& hypergraph, int max_
             const std::size_t pool_size = pool_vertices.size();
             const std::uint32_t* pool_ptr = pool_vertices.data();
             std::size_t local_changes = 0;
-#pragma omp target teams distribute parallel for map(present, to : vertex_edges[0 : vertex_edges_size], vertex_offsets[0 : vertex_offsets_size]) map(present, tofrom : vlabels[0 : num_vertices], elabels[0 : num_edges]) map(to : pool_ptr[0 : pool_size]) reduction(+ : local_changes)
+#pragma omp target teams distribute parallel for map(present, to : vertex_edges[0 : vertex_edges_size], vertex_offsets[0 : vertex_offsets_size])                                                       \
+    map(present, tofrom : vlabels[0 : num_vertices], elabels[0 : num_edges]) map(to : pool_ptr[0 : pool_size]) reduction(+ : local_changes)
             for (std::size_t idx = 0; idx < pool_size; ++idx) {
                 const std::size_t v = static_cast<std::size_t>(pool_ptr[idx]);
                 const std::size_t e_begin = vertex_offsets[v];
