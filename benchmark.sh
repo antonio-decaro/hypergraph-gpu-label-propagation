@@ -130,11 +130,11 @@ resolve_profiler_binary() {
 
 append_profiler_args() {
   local vendor="$1"
-  local -n _cmd=$2
+  local -n cmd_ref=$2
   local args="${PROFILER_ARGS[$vendor]-}"
   if [[ -n "$args" ]]; then
     read -r -a extra <<<"$args"
-    _cmd+=("${extra[@]}")
+    cmd_ref+=("${extra[@]}")
   fi
 }
 
