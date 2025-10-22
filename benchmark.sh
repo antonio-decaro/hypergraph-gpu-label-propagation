@@ -208,7 +208,16 @@ prepare_profiler_command() {
       append_profiler_args "$vendor" _cmd
       return 0
       ;;
-    amd|intel)
+    intel)
+      _cmd=(
+        "$profiler_bin"
+        -collect gpu-hotspots
+        -result-dir "$output_path"
+      )
+      append_profiler_args "$vendor" _cmd
+      return 0
+      ;;
+    amd)
       _cmd=("$profiler_bin")
       append_profiler_args "$vendor" _cmd
       return 2
