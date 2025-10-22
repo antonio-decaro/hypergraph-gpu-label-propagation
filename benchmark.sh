@@ -26,6 +26,19 @@ METRICS_DIR=""
 RUN_EXPERIMENT=true
 COLLECT_METRICS=""
 
+# Target vendor configuration for workgroup sizing
+DEFAULT_TARGET_VENDOR="nvidia"
+# Map implementation names (from resolve_exe_name) to vendors when they differ from the default.
+# Example: EXEC_VENDOR_OVERRIDES[openmp]="intel"
+declare -A EXEC_VENDOR_OVERRIDES=()
+
+# Workgroup sizes per vendor
+declare -A WORKGROUP_SIZES=(
+  [nvidia]=256
+  [amd]=512
+  [intel]=64
+)
+
 # Profiler configuration (edit here to change binaries or default flags)
 declare -A PROFILER_BINARIES=(
   [nvidia]="ncu"
@@ -102,12 +115,50 @@ resolve_exe_name() {
   esac
 }
 
+resolve_exe_vendor() {
+  local exe_path="$1"
+  local exe_name
+  exe_name=$(resolve_exe_name "$exe_path")
+  local vendor="${EXEC_VENDOR_OVERRIDES[$exe_name]-}"
+
+  if [[ -z "$vendor" ]]; then
+    vendor="$DEFAULT_TARGET_VENDOR"
+  fi
+
+  if [[ -z "$vendor" ]]; then
+    echo "Unable to determine target vendor for $exe_name. Set DEFAULT_TARGET_VENDOR or EXEC_VENDOR_OVERRIDES." >&2
+    exit 1
+  fi
+
+  echo "${vendor,,}"
+}
+
+resolve_workgroup_size() {
+  local vendor="${1,,}"
+  local size="${WORKGROUP_SIZES[$vendor]-}"
+  if [[ -z "$size" ]]; then
+    echo "Unsupported vendor for workgroup size: $vendor" >&2
+    exit 1
+  fi
+  echo "$size"
+}
+
 build_run_command() {
   local -n _out=$1
   local exe_path="$2"
   local json_path="$3"
   local seed="$4"
   local label_classes="$5"
+  local vendor="${6:-}"
+
+  if [[ -z "$vendor" ]]; then
+    vendor=$(resolve_exe_vendor "$exe_path")
+  else
+    vendor="${vendor,,}"
+  fi
+
+  local workgroup_size
+  workgroup_size=$(resolve_workgroup_size "$vendor")
 
   _out=(
     "$exe_path"
@@ -115,6 +166,7 @@ build_run_command() {
     --label-seed "$seed"
     --label-classes "$label_classes"
     --iterations 100
+    --workgroup-size "$workgroup_size"
     --tolerance 1e-6
   )
 }
@@ -212,7 +264,7 @@ collect_metrics() {
   fi
 
   local -a base_cmd
-  build_run_command base_cmd "$exe_path" "$json_path" "$seed" "$label_classes"
+  build_run_command base_cmd "$exe_path" "$json_path" "$seed" "$label_classes" "$vendor"
 
   local output_suffix=""
   if [[ "$vendor" == "nvidia" ]]; then
@@ -246,10 +298,12 @@ run_experiment() {
 
   local exe_name
   exe_name=$(resolve_exe_name "$exe_path")
+  local vendor
+  vendor=$(resolve_exe_vendor "$exe_path")
   local -a base_cmd
-  build_run_command base_cmd "$exe_path" "$json_path" "$seed" "$label_classes"
+  build_run_command base_cmd "$exe_path" "$json_path" "$seed" "$label_classes" "$vendor"
 
-  echo "[${count}/${total}] Running $exe_name on $dataset_name (run $run_idx/$RUNS, labels $label_classes)" | tee -a "$log_file"
+  echo "[${count}/${total}] Running $exe_name on $dataset_name (run $run_idx/$RUNS, labels $label_classes, vendor $vendor)" | tee -a "$log_file"
 
   "${base_cmd[@]}" >> "$log_file" 2>&1
 }
