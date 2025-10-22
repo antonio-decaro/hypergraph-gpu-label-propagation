@@ -1,4 +1,19 @@
 #!/usr/bin/env bash
+#PBS -N HLP 
+#PBS -A EnergyOpt_PhaseFreq
+#PBS -q debug
+#PBS -l select=1:ncpus=1:ngpus=1
+#PBS -l walltime=00:15:00
+#PBS -l filesystems=home
+#PBS -j oe
+#PBS -o out.txt
+#PBS -e err.txt 
+
+if [ -n "${PBS_O_WORKDIR:-}" ]; then
+  echo "Changing to working directory: $PBS_O_WORKDIR"
+  cd "$PBS_O_WORKDIR"
+fi
+
 set -euo pipefail
 
 RUNS=5
@@ -10,6 +25,19 @@ LOG_DIR="log"
 METRICS_DIR=""
 RUN_EXPERIMENT=true
 COLLECT_METRICS=""
+
+# Profiler configuration (edit here to change binaries or default flags)
+declare -A PROFILER_BINARIES=(
+  [nvidia]="ncu"
+  [amd]="rocprof"
+  [intel]="vtune"
+)
+
+declare -A PROFILER_ARGS=(
+  [nvidia]=""
+  [amd]=""
+  [intel]=""
+)
 
 usage() {
   cat <<EOF
@@ -47,6 +75,7 @@ while [[ $# -gt 0 ]]; do
       exit 1
       ;;
   esac
+
 done
 
 if [[ -z "$METRICS_DIR" ]]; then
@@ -73,27 +102,14 @@ resolve_exe_name() {
   esac
 }
 
-collect_metrics_nvidia() {
-  local exe_path="$1"
-  local json_path="$2"
-  local dataset_name="$3"
-  local label_classes="$4"
-  local seed="$5"
-  local metrics_dir="$6"
-  local log_file="$7"
+build_run_command() {
+  local -n _out=$1
+  local exe_path="$2"
+  local json_path="$3"
+  local seed="$4"
+  local label_classes="$5"
 
-  if ! command -v ncu >/dev/null 2>&1; then
-    echo "ncu command not found in PATH. Install NVIDIA Nsight Compute CLI to collect metrics." >&2
-    return 1
-  fi
-
-  local exe_name
-  exe_name=$(resolve_exe_name "$exe_path")
-  local report_base="${exe_name}_${dataset_name}"
-
-  echo "Collecting NVIDIA metrics with ncu -> ${metrics_dir}/${report_base}.ncu-rep" | tee -a "$log_file"
-
-  local -a base_cmd=(
+  _out=(
     "$exe_path"
     --load "$json_path"
     --label-seed "$seed"
@@ -101,40 +117,110 @@ collect_metrics_nvidia() {
     --iterations 100
     --tolerance 1e-6
   )
-
-  local -a ncu_cmd=(
-    ncu
-    -f
-    -o "${metrics_dir}/${report_base}"
-    # --set full
-  )
-
-  if [[ -n "${NCU_EXTRA_ARGS:-}" ]]; then
-    # shellcheck disable=SC2206
-    ncu_cmd+=(${NCU_EXTRA_ARGS})
-  fi
-
-  "${ncu_cmd[@]}" "${base_cmd[@]}" >> "$log_file" 2>&1
 }
 
-collect_metrics() {
+resolve_profiler_binary() {
   local vendor="$1"
-  shift || true
+  local bin="${PROFILER_BINARIES[$vendor]-}"
+  if [[ -z "$bin" ]]; then
+    return 1
+  fi
+  echo "$bin"
+}
+
+append_profiler_args() {
+  local vendor="$1"
+  local -n _cmd=$2
+  local args="${PROFILER_ARGS[$vendor]-}"
+  if [[ -n "$args" ]]; then
+    read -r -a extra <<<"$args"
+    _cmd+=("${extra[@]}")
+  fi
+}
+
+prepare_profiler_command() {
+  local vendor="$1"
+  local -n _cmd=$2
+  local output_path="$3"
+
+  local profiler_bin
+  profiler_bin=$(resolve_profiler_binary "$vendor") || return 1
 
   case "$vendor" in
     nvidia)
-      collect_metrics_nvidia "$@"
+      _cmd=(
+        "$profiler_bin"
+        -f
+        -o "$output_path"
+      )
+      append_profiler_args "$vendor" _cmd
+      return 0
       ;;
     amd|intel)
-      echo "Metric collection for $vendor GPUs is not implemented yet." >&2
-      ;;
-    "")
+      _cmd=("$profiler_bin")
+      append_profiler_args "$vendor" _cmd
+      return 2
       ;;
     *)
-      echo "Unsupported metrics vendor: $vendor" >&2
       return 1
       ;;
   esac
+}
+
+collect_metrics() {
+  local vendor="${1,,}"
+  local exe_path="$2"
+  local json_path="$3"
+  local dataset_name="$4"
+  local label_classes="$5"
+  local seed="$6"
+  local metrics_dir="$7"
+  local log_file="$8"
+
+  if [[ -z "$vendor" ]]; then
+    return 0
+  fi
+
+  local exe_name
+  exe_name=$(resolve_exe_name "$exe_path")
+  local output_path="${metrics_dir}/${exe_name}_${dataset_name}"
+
+  local -a profiler_cmd
+  local prep_status=0
+  prepare_profiler_command "$vendor" profiler_cmd "$output_path" || prep_status=$?
+
+  case "$prep_status" in
+    0)
+      ;;
+    2)
+      echo "Metric collection for $vendor GPUs is not implemented yet." >&2
+      return 0
+      ;;
+    1)
+      echo "Unsupported metrics vendor: $vendor" >&2
+      return 1
+      ;;
+    *)
+      return "$prep_status"
+      ;;
+  esac
+
+  local profiler_bin="${profiler_cmd[0]}"
+  if ! command -v "$profiler_bin" >/dev/null 2>&1; then
+    echo "$profiler_bin command not found in PATH. Install the required tooling to collect metrics." >&2
+    return 1
+  fi
+
+  local -a base_cmd
+  build_run_command base_cmd "$exe_path" "$json_path" "$seed" "$label_classes"
+
+  local output_suffix=""
+  if [[ "$vendor" == "nvidia" ]]; then
+    output_suffix=".ncu-rep"
+  fi
+
+  echo "Collecting ${vendor^^} metrics with $profiler_bin -> ${output_path}${output_suffix}" | tee -a "$log_file"
+  "${profiler_cmd[@]}" "${base_cmd[@]}" >> "$log_file" 2>&1
 }
 
 readarray -t JSON_FILES < <(find "$JSON_DIR" -maxdepth 1 -type f -name '*.json' | sort)
@@ -160,15 +246,12 @@ run_experiment() {
 
   local exe_name
   exe_name=$(resolve_exe_name "$exe_path")
+  local -a base_cmd
+  build_run_command base_cmd "$exe_path" "$json_path" "$seed" "$label_classes"
 
   echo "[${count}/${total}] Running $exe_name on $dataset_name (run $run_idx/$RUNS, labels $label_classes)" | tee -a "$log_file"
 
-  "$exe_path" \
-    --load "$json_path" \
-    --label-seed "$seed" \
-    --label-classes "$label_classes" \
-    --iterations 100 \
-    --tolerance 1e-6 >> "$log_file" 2>&1
+  "${base_cmd[@]}" >> "$log_file" 2>&1
 }
 
 echo "Running benchmarks for ${#EXECUTABLES[@]} implementations on ${#JSON_FILES[@]} datasets across ${#LABEL_CLASSES_LIST[@]} label-class settings"
