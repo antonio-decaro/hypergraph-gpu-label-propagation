@@ -16,6 +16,8 @@ function(sycl_configure_offload target_name)
             set(SYCL_TARGET "nvidia_gpu_${OFFLOAD_TARGET}")
         elseif (OFFLOAD_VENDOR STREQUAL "AMD")
             set(SYCL_TARGET "amd_gpu_${OFFLOAD_TARGET}")
+        elseif (OFFLOAD_VENDOR STREQUAL "INTEL")
+            set(SYCL_TARGET "intel_gpu_pvc")
         endif()
     endif()
 

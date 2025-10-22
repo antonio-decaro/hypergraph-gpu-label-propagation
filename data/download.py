@@ -11,12 +11,13 @@ from tqdm import tqdm
 # The structure is a dictionary where keys are dataset names and values are tuples of (URL, is_google_drive_link).
 datasets = {
   "arxiv-kaggle": ("https://drive.google.com/uc?export=download&id=1TOTNjQie892rmi-4hqmT1EAPm_A47zCR", True),
-  "eventernote-places": ("https://zenodo.org/records/11263394/files/eventernote-places.json?download=1", False),
-  "coauth-MAG-History": ("https://zenodo.org/records/13151009/files/coauth-MAG-History.json?download=1", False),
-  "ndc-substances": ("https://zenodo.org/records/10929019/files/NDC-substances.json?download=1", False),
-  "coauth-MAG-Geology": ("https://zenodo.org/records/10928443/files/coauth-MAG-Geology.json?download=1", False),
-  "senate-committees": ("https://zenodo.org/records/10957699/files/senate-committees.json?download=1", False),
-  "coauth-DBLP": ("https://zenodo.org/records/13203175/files/coauth-DBLP.json?download=1", False),  
+  "eventernote-places": ("https://zenodo.org/records/11263394/files/eventernote-places.json", False),
+  "coauth-MAG-History": ("https://zenodo.org/records/13151009/files/coauth-MAG-History.json", False),
+  "ndc-substances": ("https://zenodo.org/records/10929019/files/NDC-substances.json", False),
+  "coauth-MAG-Geology": ("https://zenodo.org/records/10928443/files/coauth-MAG-Geology.json", False),
+  "senate-committees": ("https://zenodo.org/records/10957699/files/senate-committees.json", False),
+  "coauth-DBLP": ("https://zenodo.org/records/13203175/files/coauth-DBLP.json", False),
+  "stack-overflow": ("https://zenodo.org/records/10373328/files/threads-stack-overflow.json", False),  
 }
 
 def download_file(url, output_path, is_google_drive=False):
