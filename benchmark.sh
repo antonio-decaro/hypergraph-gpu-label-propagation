@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #PBS -N HLP 
-#PBS -A EnergyOpt_PhaseFreq
+#PBS -A 
 #PBS -q debug
 #PBS -l select=1:ncpus=1:ngpus=1
 #PBS -l walltime=00:15:00
@@ -43,7 +43,7 @@ declare -A WORKGROUP_SIZES=(
 declare -A PROFILER_BINARIES=(
   [nvidia]="ncu"
   [amd]="rocprof"
-  [intel]="vtune"
+  [intel]="unitrace"
 )
 
 declare -A PROFILER_ARGS=(
@@ -211,8 +211,8 @@ prepare_profiler_command() {
     intel)
       _cmd=(
         "$profiler_bin"
-        -collect gpu-hotspots
-        -result-dir "$output_path"
+        -q --chrome-kernel-logging -g ComputeBasic
+        -o "$output_path"
       )
       append_profiler_args "$vendor" _cmd
       return 0
