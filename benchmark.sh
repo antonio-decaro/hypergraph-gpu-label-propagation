@@ -43,7 +43,7 @@ declare -A WORKGROUP_SIZES=(
 declare -A PROFILER_BINARIES=(
   [nvidia]="ncu"
   [amd]="rocprof"
-  [intel]="unitrace"
+  [intel]="vtune"
 )
 
 declare -A PROFILER_ARGS=(
@@ -211,8 +211,10 @@ prepare_profiler_command() {
     intel)
       _cmd=(
         "$profiler_bin"
-        -q --chrome-kernel-logging -g ComputeBasic
-        -o "$output_path"
+        -collect gpu-hotspots
+        -knob characterization-mode=full-compute
+        -allow-multiple-runs
+        -r "$output_path"
       )
       append_profiler_args "$vendor" _cmd
       return 0
