@@ -3,7 +3,7 @@
 #PBS -A 
 #PBS -q debug
 #PBS -l select=1:ncpus=1:ngpus=1
-#PBS -l walltime=00:15:00
+#PBS -l walltime=01:00:00
 #PBS -l filesystems=home
 #PBS -j oe
 #PBS -o out.txt
@@ -27,7 +27,7 @@ RUN_EXPERIMENT=true
 COLLECT_METRICS=""
 
 # Target vendor configuration for workgroup sizing
-DEFAULT_TARGET_VENDOR="nvidia"
+
 # Map implementation names (from resolve_exe_name) to vendors when they differ from the default.
 # Example: EXEC_VENDOR_OVERRIDES[openmp]="intel"
 declare -A EXEC_VENDOR_OVERRIDES=()
@@ -36,20 +36,7 @@ declare -A EXEC_VENDOR_OVERRIDES=()
 declare -A WORKGROUP_SIZES=(
   [nvidia]=256
   [amd]=512
-  [intel]=64
-)
-
-# Profiler configuration (edit here to change binaries or default flags)
-declare -A PROFILER_BINARIES=(
-  [nvidia]="ncu"
-  [amd]="rocprof"
-  [intel]="vtune"
-)
-
-declare -A PROFILER_ARGS=(
-  [nvidia]=""
-  [amd]=""
-  [intel]=""
+  [intel]=256
 )
 
 usage() {
@@ -171,65 +158,6 @@ build_run_command() {
   )
 }
 
-resolve_profiler_binary() {
-  local vendor="$1"
-  local bin="${PROFILER_BINARIES[$vendor]-}"
-  if [[ -z "$bin" ]]; then
-    return 1
-  fi
-  echo "$bin"
-}
-
-append_profiler_args() {
-  local vendor="$1"
-  local -n cmd_ref=$2
-  local args="${PROFILER_ARGS[$vendor]-}"
-  if [[ -n "$args" ]]; then
-    read -r -a extra <<<"$args"
-    cmd_ref+=("${extra[@]}")
-  fi
-}
-
-prepare_profiler_command() {
-  local vendor="$1"
-  local -n _cmd=$2
-  local output_path="$3"
-
-  local profiler_bin
-  profiler_bin=$(resolve_profiler_binary "$vendor") || return 1
-
-  case "$vendor" in
-    nvidia)
-      _cmd=(
-        "$profiler_bin"
-        -f
-        -o "$output_path"
-      )
-      append_profiler_args "$vendor" _cmd
-      return 0
-      ;;
-    intel)
-      _cmd=(
-        "$profiler_bin"
-        -collect gpu-hotspots
-        -knob characterization-mode=full-compute
-        -allow-multiple-runs
-        -r "$output_path"
-      )
-      append_profiler_args "$vendor" _cmd
-      return 0
-      ;;
-    amd)
-      _cmd=("$profiler_bin")
-      append_profiler_args "$vendor" _cmd
-      return 2
-      ;;
-    *)
-      return 1
-      ;;
-  esac
-}
-
 collect_metrics() {
   local vendor="${1,,}"
   local exe_path="$2"
@@ -248,42 +176,20 @@ collect_metrics() {
   exe_name=$(resolve_exe_name "$exe_path")
   local output_path="${metrics_dir}/${exe_name}_${dataset_name}"
 
-  local -a profiler_cmd
-  local prep_status=0
-  prepare_profiler_command "$vendor" profiler_cmd "$output_path" || prep_status=$?
-
-  case "$prep_status" in
-    0)
-      ;;
-    2)
-      echo "Metric collection for $vendor GPUs is not implemented yet." >&2
-      return 0
-      ;;
-    1)
-      echo "Unsupported metrics vendor: $vendor" >&2
-      return 1
-      ;;
-    *)
-      return "$prep_status"
-      ;;
-  esac
-
-  local profiler_bin="${profiler_cmd[0]}"
-  if ! command -v "$profiler_bin" >/dev/null 2>&1; then
-    echo "$profiler_bin command not found in PATH. Install the required tooling to collect metrics." >&2
-    return 1
-  fi
-
   local -a base_cmd
   build_run_command base_cmd "$exe_path" "$json_path" "$seed" "$label_classes" "$vendor"
 
-  local output_suffix=""
-  if [[ "$vendor" == "nvidia" ]]; then
-    output_suffix=".ncu-rep"
-  fi
+  echo "Collecting ${vendor^^} metrics -> ${output_path}" 
 
-  echo "Collecting ${vendor^^} metrics with $profiler_bin -> ${output_path}${output_suffix}" | tee -a "$log_file"
-  "${profiler_cmd[@]}" "${base_cmd[@]}" >> "$log_file" 2>&1
+  if [[ "$vendor" == "intel" ]]; then
+    vtune -collect gpu-hotspots -knob characterization-mode=overview -r "${output_path}_compute" -- "${base_cmd[@]}" 
+    # vtune -collect gpu-hotspots -knob characterization-mode=global-memory-accesses -r "${output_path}_memory" -- "${base_cmd[@]}"
+  elif [[ "$vendor" == "nvidia" ]]; then
+    ncu --set full -f -o "${output_path}" "${base_cmd[@]}" 
+  else
+    echo "Unsupported vendor for metrics collection: $vendor" >&2
+  fi
+  
 }
 
 readarray -t JSON_FILES < <(find "$JSON_DIR" -maxdepth 1 -type f -name '*.json' | sort)
