@@ -32,7 +32,7 @@ class LabelPropagationCUDA : public LabelPropagationAlgorithm {
     bool run_iteration_cuda(const DeviceFlatHypergraph& flat_hg,
                             Hypergraph::Label* d_vertex_labels,
                             Hypergraph::Label* d_edge_labels,
-                            unsigned int* d_change_flags,
+                            unsigned int* d_change_count,
                             double tolerance);
 
     static void check_cuda(cudaError_t err, const char* context);

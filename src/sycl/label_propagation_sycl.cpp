@@ -53,20 +53,29 @@ PerformanceMeasurer LabelPropagationSYCL::run(Hypergraph& hypergraph, int max_it
         const auto setup_end = PerformanceMeasurer::clock::now();
         perf.add_moment("setup", setup_end - setup_start);
 
-        const auto iteration_start = PerformanceMeasurer::clock::now();
         int iterations_completed = 0;
         bool converged = false;
-        for (int iteration = 0; iteration < max_iterations; ++iteration) {
-            bool iteration_converged = run_iteration_sycl(hg, vertex_labels, edge_labels, changes, max_labels, tolerance);
 
-            if (iteration_converged) {
+        // First iteration timed separately: isolates JIT compilation overhead on SYCL backends
+        const auto init_start = PerformanceMeasurer::clock::now();
+        if (max_iterations > 0) {
+            converged = run_iteration_sycl(hg, vertex_labels, edge_labels, changes, max_labels, tolerance);
+            if (converged) {
+                std::cout << "Converged after 1 iterations\n";
+                iterations_completed = 1;
+            }
+        }
+        const auto init_end = PerformanceMeasurer::clock::now();
+        perf.add_moment("init", init_end - init_start);
+
+        const auto iteration_start = PerformanceMeasurer::clock::now();
+        for (int iteration = 1; !converged && iteration < max_iterations; ++iteration) {
+            converged = run_iteration_sycl(hg, vertex_labels, edge_labels, changes, max_labels, tolerance);
+            if (converged) {
                 std::cout << "Converged after " << iteration + 1 << " iterations\n";
                 iterations_completed = iteration + 1;
-                converged = true;
-                break;
             }
-
-            if ((iteration + 1) % 10 == 0) { std::cout << "Iteration " << iteration + 1 << " completed\n"; }
+            if (!converged && (iteration + 1) % 10 == 0) { std::cout << "Iteration " << iteration + 1 << " completed\n"; }
         }
 
         if (!converged) { iterations_completed = max_iterations; }
