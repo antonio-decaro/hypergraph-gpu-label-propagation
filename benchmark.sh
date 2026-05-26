@@ -202,6 +202,7 @@ prepare_profiler_command() {
     nvidia)
       _cmd=(
         "$profiler_bin"
+        --set full
         -f
         -o "$output_path"
       )
