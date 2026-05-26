@@ -25,12 +25,22 @@ LOG_DIR="log"
 METRICS_DIR=""
 RUN_EXPERIMENT=true
 COLLECT_METRICS=""
+DEFAULT_TARGET_VENDOR="nvidia"
 
 # Target vendor configuration for workgroup sizing
 
 # Map implementation names (from resolve_exe_name) to vendors when they differ from the default.
 # Example: EXEC_VENDOR_OVERRIDES[openmp]="intel"
 declare -A EXEC_VENDOR_OVERRIDES=()
+
+declare -A PROFILER_BINARIES=(
+  [nvidia]="ncu"
+  [amd]="rocprof"
+  [intel]="vtune"
+)
+declare -A PROFILER_ARGS=(
+  [intel]="-collect gpu-hotspots -knob characterization-mode=overview"
+)
 
 # Workgroup sizes per vendor
 declare -A WORKGROUP_SIZES=(
@@ -158,7 +168,6 @@ build_run_command() {
   )
 }
 
-<<<<<<< HEAD
 resolve_profiler_binary() {
   local vendor="$1"
   local bin="${PROFILER_BINARIES[$vendor]-}"
@@ -208,8 +217,7 @@ prepare_profiler_command() {
   esac
 }
 
-=======
->>>>>>> 96cebd157ade58df12798a51c8e873644f768ec6
+
 collect_metrics() {
   local vendor="${1,,}"
   local exe_path="$2"
