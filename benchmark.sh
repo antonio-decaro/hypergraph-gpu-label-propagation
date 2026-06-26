@@ -26,6 +26,8 @@ METRICS_DIR=""
 RUN_EXPERIMENT=true
 COLLECT_METRICS=""
 DEFAULT_TARGET_VENDOR="nvidia"
+DATASET_FILTER=()
+ALGORITHM_FILTER="all"  # all | lp | pr
 
 # Target vendor configuration for workgroup sizing
 
@@ -54,6 +56,8 @@ usage() {
 Usage: $0 [options]
 
 Options:
+  --datasets NAME[,NAME,...]            Comma-separated list of dataset names to run (default: all)
+  --algorithm {lp|pr|all}              Run only label propagation, only PageRank, or both (default: all)
   --collect-metrics {nvidia|amd|intel}  Collect GPU metrics (default: disabled)
   --metrics-dir PATH                    Directory for profiler outputs (default: LOG_DIR/metrics)
   --skip-run                            Skip executing the benchmark binaries; only collect metrics
@@ -63,6 +67,14 @@ EOF
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --datasets)
+      IFS=',' read -r -a DATASET_FILTER <<< "${2:-}"
+      shift 2
+      ;;
+    --algorithm)
+      ALGORITHM_FILTER="${2:-all}"
+      shift 2
+      ;;
     --collect-metrics)
       COLLECT_METRICS="${2:-}"
       shift 2
@@ -102,9 +114,14 @@ resolve_exe_name() {
   local exe_basename
   exe_basename=$(basename "$1")
   case "$exe_basename" in
-    label_propagation_sycl*) echo "sycl" ;;
-    label_propagation_openmp*) echo "openmp" ;;
-    label_propagation_kokkos*) echo "kokkos" ;;
+    label_propagation_sycl*)   echo "lp_sycl" ;;
+    label_propagation_openmp*) echo "lp_openmp" ;;
+    label_propagation_kokkos*) echo "lp_kokkos" ;;
+    label_propagation_cuda*)   echo "lp_cuda" ;;
+    page_rank_sycl*)           echo "pr_sycl" ;;
+    page_rank_openmp*)         echo "pr_openmp" ;;
+    page_rank_kokkos*)         echo "pr_kokkos" ;;
+    page_rank_cuda*)           echo "pr_cuda" ;;
     *)
       echo "Unsupported executable name: $exe_basename" >&2
       exit 1
@@ -258,9 +275,40 @@ if [ ${#JSON_FILES[@]} -eq 0 ]; then
   exit 1
 fi
 
-readarray -t EXECUTABLES < <(find "$BUILD_DIR" -maxdepth 1 -type f -executable -name 'label_propagation_*' | sort)
+if [ ${#DATASET_FILTER[@]} -gt 0 ]; then
+  filtered=()
+  for f in "${JSON_FILES[@]}"; do
+    name=$(basename "$f" .json)
+    for d in "${DATASET_FILTER[@]}"; do
+      if [[ "$name" == "$d" ]]; then
+        filtered+=("$f")
+        break
+      fi
+    done
+  done
+  if [ ${#filtered[@]} -eq 0 ]; then
+    echo "No matching datasets found for filter: ${DATASET_FILTER[*]}" >&2
+    exit 1
+  fi
+  JSON_FILES=("${filtered[@]}")
+fi
+
+if [[ "$ALGORITHM_FILTER" != "lp" && "$ALGORITHM_FILTER" != "pr" && "$ALGORITHM_FILTER" != "all" ]]; then
+  echo "Unknown --algorithm value: $ALGORITHM_FILTER (use lp, pr, or all)" >&2
+  exit 1
+fi
+
+EXECUTABLES=()
+while IFS= read -r exe; do
+  case "$ALGORITHM_FILTER" in
+    lp)  [[ "$exe" == *label_propagation_* ]] && EXECUTABLES+=("$exe") || true ;;
+    pr)  [[ "$exe" == *page_rank_* ]]         && EXECUTABLES+=("$exe") || true ;;
+    all) EXECUTABLES+=("$exe") ;;
+  esac
+done < <(find "$BUILD_DIR" -maxdepth 2 -type f -executable \( -name 'label_propagation_*' -o -name 'page_rank_*' \) | sort)
+
 if [ ${#EXECUTABLES[@]} -eq 0 ]; then
-  echo "No label_propagation executables found in $BUILD_DIR" >&2
+  echo "No executables found in $BUILD_DIR for --algorithm=$ALGORITHM_FILTER" >&2
   exit 1
 fi
 
@@ -282,7 +330,10 @@ run_experiment() {
 
   echo "[${count}/${total}] Running $exe_name on $dataset_name (run $run_idx/$RUNS, labels $label_classes, vendor $vendor)" | tee -a "$log_file"
 
-  "${base_cmd[@]}" >> "$log_file" 2>&1
+  if ! "${base_cmd[@]}" >> "$log_file" 2>&1; then
+    local rc=$?
+    echo "WARNING: $exe_name failed on $dataset_name run $run_idx (exit $rc)" | tee -a "$log_file" >&2
+  fi
 }
 
 echo "Running benchmarks for ${#EXECUTABLES[@]} implementations on ${#JSON_FILES[@]} datasets across ${#LABEL_CLASSES_LIST[@]} label-class settings"

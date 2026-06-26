@@ -177,6 +177,26 @@ class LabelPropagationAlgorithm {
 };
 
 /**
+ * @brief Abstract base class for PageRank algorithms
+ */
+class PageRankAlgorithm {
+  public:
+    explicit PageRankAlgorithm(const CLI::DeviceOptions& device, double alpha = 0.85)
+        : device_(device), alpha_(alpha) {}
+    virtual ~PageRankAlgorithm() = default;
+
+    virtual PerformanceMeasurer run(const Hypergraph& hypergraph, int max_iterations = 100, double tolerance = 1e-6) = 0;
+    virtual std::string get_name() const = 0;
+
+    const std::vector<float>& get_scores() const { return scores_; }
+
+  protected:
+    CLI::DeviceOptions device_;
+    double alpha_;
+    std::vector<float> scores_;
+};
+
+/**
  * @brief Random hypergraph generators (common library)
  */
 namespace hypergraph_generators {

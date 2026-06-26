@@ -53,26 +53,31 @@ if(BUILD_OPENMP)
     find_package(OpenMP)
     if(OpenMP_CXX_FOUND)
         message(STATUS "Building OpenMP implementation")
-        
+
         add_executable(label_propagation_openmp
             src/openmp/main_openmp.cpp
             src/openmp/label_propagation_openmp.cpp
         )
-        
-        target_link_libraries(label_propagation_openmp 
-            PRIVATE 
+
+        target_link_libraries(label_propagation_openmp
+            PRIVATE
             hypergraph_common
             cli_common
             OpenMP::OpenMP_CXX
         )
-        
-        target_include_directories(label_propagation_openmp PRIVATE src/openmp)
-        
-        # Set OpenMP compiler flags
-        target_compile_options(label_propagation_openmp PRIVATE ${OpenMP_CXX_FLAGS})
 
-        # Configure OpenMP target offload via helper
+        target_include_directories(label_propagation_openmp PRIVATE src/openmp)
+        target_compile_options(label_propagation_openmp PRIVATE ${OpenMP_CXX_FLAGS})
         omp_configure_offload(label_propagation_openmp)
+
+        add_executable(page_rank_openmp
+            src/openmp/main_pagerank_openmp.cpp
+            src/openmp/pagerank_openmp.cpp
+        )
+        target_link_libraries(page_rank_openmp PRIVATE hypergraph_common cli_common OpenMP::OpenMP_CXX)
+        target_include_directories(page_rank_openmp PRIVATE src/openmp)
+        target_compile_options(page_rank_openmp PRIVATE ${OpenMP_CXX_FLAGS})
+        omp_configure_offload(page_rank_openmp)
     else()
         message(WARNING "OpenMP not found, skipping OpenMP implementation")
     endif()
@@ -91,16 +96,17 @@ if(BUILD_SYCL)
             src/sycl/main_sycl.cpp
             src/sycl/label_propagation_sycl.cpp
         )
-
-        target_link_libraries(label_propagation_sycl 
-            PRIVATE 
-            hypergraph_common
-            cli_common
-        )
-
+        target_link_libraries(label_propagation_sycl PRIVATE hypergraph_common cli_common)
         target_include_directories(label_propagation_sycl PRIVATE src/sycl)
-
         sycl_configure_offload(label_propagation_sycl)
+
+        add_executable(page_rank_sycl
+            src/sycl/main_pagerank_sycl.cpp
+            src/sycl/pagerank_sycl.cpp
+        )
+        target_link_libraries(page_rank_sycl PRIVATE hypergraph_common cli_common)
+        target_include_directories(page_rank_sycl PRIVATE src/sycl)
+        sycl_configure_offload(page_rank_sycl)
     else()
         message(WARNING "Selected compiler (${CMAKE_CXX_COMPILER}) does not support -fsycl. Skipping SYCL implementation.")
         set(BUILD_SYCL OFF CACHE BOOL "Build SYCL implementation" FORCE)
@@ -118,15 +124,15 @@ if(BUILD_KOKKOS)
             src/kokkos/main_kokkos.cpp
             src/kokkos/label_propagation_kokkos.cpp
         )
-        
-        target_link_libraries(label_propagation_kokkos 
-            PRIVATE 
-            hypergraph_common
-            cli_common
-            Kokkos::kokkos
-        )
-        
+        target_link_libraries(label_propagation_kokkos PRIVATE hypergraph_common cli_common Kokkos::kokkos)
         target_include_directories(label_propagation_kokkos PRIVATE src/kokkos)
+
+        add_executable(page_rank_kokkos
+            src/kokkos/main_pagerank_kokkos.cpp
+            src/kokkos/pagerank_kokkos.cpp
+        )
+        target_link_libraries(page_rank_kokkos PRIVATE hypergraph_common cli_common Kokkos::kokkos)
+        target_include_directories(page_rank_kokkos PRIVATE src/kokkos)
     else()
         message(WARNING "Kokkos not found, skipping Kokkos implementation")
         message(STATUS "To build Kokkos implementation:")
@@ -148,16 +154,17 @@ if(BUILD_CUDA)
             src/cuda/main_cuda.cpp
             src/cuda/label_propagation_cuda.cu
         )
-
-        target_link_libraries(label_propagation_cuda
-            PRIVATE
-                hypergraph_common
-                cli_common
-                CUDA::cudart
-        )
-
+        target_link_libraries(label_propagation_cuda PRIVATE hypergraph_common cli_common CUDA::cudart)
         target_include_directories(label_propagation_cuda PRIVATE src/cuda)
         cuda_configure_offload(label_propagation_cuda)
+
+        add_executable(page_rank_cuda
+            src/cuda/main_pagerank_cuda.cpp
+            src/cuda/pagerank_cuda.cu
+        )
+        target_link_libraries(page_rank_cuda PRIVATE hypergraph_common cli_common CUDA::cudart)
+        target_include_directories(page_rank_cuda PRIVATE src/cuda)
+        cuda_configure_offload(page_rank_cuda)
     else()
         message(WARNING "CUDAToolkit not found, skipping CUDA implementation")
         message(STATUS "To build CUDA implementation:")

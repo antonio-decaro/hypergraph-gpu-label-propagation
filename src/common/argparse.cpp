@@ -128,7 +128,7 @@ Options parse_args(int argc, char** argv) {
     opts.add_options("Problem")("v,vertices", "Number of vertices", cxxopts::value<std::size_t>(out.vertices))("e,edges", "Number of hyperedges", cxxopts::value<std::size_t>(out.edges));
 
     // Group: Algorithm
-    opts.add_options("Algorithm")("i,iterations", "Max iterations", cxxopts::value<int>(out.iterations))("t,tolerance", "Convergence tolerance", cxxopts::value<double>(out.tolerance));
+    opts.add_options("Algorithm")("i,iterations", "Max iterations", cxxopts::value<int>(out.iterations))("t,tolerance", "Convergence tolerance", cxxopts::value<double>(out.tolerance))("alpha", "PageRank damping factor", cxxopts::value<double>(out.alpha));
 
     // Group: Generator selection and parameters
     bool flag_uniform = false, flag_fixed = false, flag_planted = false;

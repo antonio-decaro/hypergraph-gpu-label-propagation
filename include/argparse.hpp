@@ -25,6 +25,7 @@ struct Options {
     // Algorithm
     int iterations = 100;
     double tolerance = 1e-6;
+    double alpha = 0.85; // damping factor for PageRank
 
     // Generator
     std::string generator = "uniform"; // uniform|fixed|planted

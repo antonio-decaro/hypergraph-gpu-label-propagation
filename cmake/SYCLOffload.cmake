@@ -21,12 +21,12 @@ function(sycl_configure_offload target_name)
         endif()
     endif()
 
-    target_compile_options(label_propagation_sycl PRIVATE 
+    target_compile_options(${target_name} PRIVATE
         -fsycl
         -fsycl-targets=${SYCL_TARGET}
     )
 
-    target_link_options(label_propagation_sycl PRIVATE 
+    target_link_options(${target_name} PRIVATE
         -fsycl
         -fsycl-targets=${SYCL_TARGET}
     )
