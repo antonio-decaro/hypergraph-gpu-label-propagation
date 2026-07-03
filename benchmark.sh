@@ -28,12 +28,17 @@ COLLECT_METRICS=""
 DEFAULT_TARGET_VENDOR="nvidia"
 DATASET_FILTER=()
 ALGORITHM_FILTER="all"  # all | lp | pr
+IMPL_FILTER=()          # empty = all; e.g. (cuda sycl)
+KNOWN_IMPLS=(sycl openmp kokkos cuda hip)
 
 # Target vendor configuration for workgroup sizing
 
 # Map implementation names (from resolve_exe_name) to vendors when they differ from the default.
 # Example: EXEC_VENDOR_OVERRIDES[openmp]="intel"
-declare -A EXEC_VENDOR_OVERRIDES=()
+declare -A EXEC_VENDOR_OVERRIDES=(
+  [lp_hip]="amd"
+  [pr_hip]="amd"
+)
 
 declare -A PROFILER_BINARIES=(
   [nvidia]="ncu"
@@ -58,6 +63,8 @@ Usage: $0 [options]
 Options:
   --datasets NAME[,NAME,...]            Comma-separated list of dataset names to run (default: all)
   --algorithm {lp|pr|all}              Run only label propagation, only PageRank, or both (default: all)
+  --implementations NAME[,NAME,...]     Comma-separated list of implementations to run:
+                                        sycl, openmp, kokkos, cuda, hip (default: all)
   --collect-metrics {nvidia|amd|intel}  Collect GPU metrics (default: disabled)
   --metrics-dir PATH                    Directory for profiler outputs (default: LOG_DIR/metrics)
   --skip-run                            Skip executing the benchmark binaries; only collect metrics
@@ -73,6 +80,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --algorithm)
       ALGORITHM_FILTER="${2:-all}"
+      shift 2
+      ;;
+    --implementations)
+      IFS=',' read -r -a IMPL_FILTER <<< "${2:-}"
       shift 2
       ;;
     --collect-metrics)
@@ -118,10 +129,12 @@ resolve_exe_name() {
     label_propagation_openmp*) echo "lp_openmp" ;;
     label_propagation_kokkos*) echo "lp_kokkos" ;;
     label_propagation_cuda*)   echo "lp_cuda" ;;
+    label_propagation_hip*)    echo "lp_hip" ;;
     page_rank_sycl*)           echo "pr_sycl" ;;
     page_rank_openmp*)         echo "pr_openmp" ;;
     page_rank_kokkos*)         echo "pr_kokkos" ;;
     page_rank_cuda*)           echo "pr_cuda" ;;
+    page_rank_hip*)            echo "pr_hip" ;;
     *)
       echo "Unsupported executable name: $exe_basename" >&2
       exit 1
@@ -298,17 +311,41 @@ if [[ "$ALGORITHM_FILTER" != "lp" && "$ALGORITHM_FILTER" != "pr" && "$ALGORITHM_
   exit 1
 fi
 
+if [ ${#IMPL_FILTER[@]} -gt 0 ]; then
+  for impl in "${IMPL_FILTER[@]}"; do
+    case " ${KNOWN_IMPLS[*]} " in
+      *" ${impl} "*) ;;
+      *)
+        echo "Unknown --implementations value: $impl (use ${KNOWN_IMPLS[*]// /, })" >&2
+        exit 1
+        ;;
+    esac
+  done
+fi
+
 EXECUTABLES=()
 while IFS= read -r exe; do
   case "$ALGORITHM_FILTER" in
-    lp)  [[ "$exe" == *label_propagation_* ]] && EXECUTABLES+=("$exe") || true ;;
-    pr)  [[ "$exe" == *page_rank_* ]]         && EXECUTABLES+=("$exe") || true ;;
-    all) EXECUTABLES+=("$exe") ;;
+    lp)  [[ "$exe" == *label_propagation_* ]] || continue ;;
+    pr)  [[ "$exe" == *page_rank_* ]]         || continue ;;
   esac
+
+  if [ ${#IMPL_FILTER[@]} -gt 0 ]; then
+    impl_matched=false
+    for impl in "${IMPL_FILTER[@]}"; do
+      if [[ "$(basename "$exe")" == *"_${impl}" ]]; then
+        impl_matched=true
+        break
+      fi
+    done
+    [ "$impl_matched" = true ] || continue
+  fi
+
+  EXECUTABLES+=("$exe")
 done < <(find "$BUILD_DIR" -maxdepth 2 -type f -executable \( -name 'label_propagation_*' -o -name 'page_rank_*' \) | sort)
 
 if [ ${#EXECUTABLES[@]} -eq 0 ]; then
-  echo "No executables found in $BUILD_DIR for --algorithm=$ALGORITHM_FILTER" >&2
+  echo "No executables found in $BUILD_DIR for --algorithm=$ALGORITHM_FILTER${IMPL_FILTER[*]:+ --implementations=${IMPL_FILTER[*]}}" >&2
   exit 1
 fi
 

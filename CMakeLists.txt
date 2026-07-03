@@ -34,9 +34,10 @@ endif()
 
 # Find and configure different programming models
 set(BUILD_OPENMP OFF CACHE BOOL "Build OpenMP implementation")
-set(BUILD_SYCL OFF CACHE BOOL "Build SYCL implementation")  
+set(BUILD_SYCL OFF CACHE BOOL "Build SYCL implementation")
 set(BUILD_KOKKOS OFF CACHE BOOL "Build Kokkos implementation")
 set(BUILD_CUDA OFF CACHE BOOL "Build CUDA implementation")
+set(BUILD_HIP OFF CACHE BOOL "Build HIP implementation")
 
 set(OFFLOAD_VENDOR "NVIDIA" CACHE STRING "Offload target vendor: NVIDIA, AMD, or INTEL")
 set_property(CACHE OFFLOAD_VENDOR PROPERTY STRINGS "NVIDIA" "AMD" "INTEL")
@@ -47,6 +48,7 @@ set(OFFLOAD_TARGET "none" CACHE STRING "Offload target architecture (none, sm_70
 include(cmake/OpenMPOffload.cmake)
 include(cmake/SYCLOffload.cmake)
 include(cmake/CUDAOffload.cmake)
+include(cmake/HIPOffload.cmake)
 
 # Build OpenMP implementation
 if(BUILD_OPENMP)
@@ -174,6 +176,46 @@ if(BUILD_CUDA)
     endif()
 endif()
 
+# Build HIP implementation
+if(BUILD_HIP)
+    if(CMAKE_VERSION VERSION_LESS 3.21)
+        message(FATAL_ERROR "BUILD_HIP requires CMake >= 3.21 (found ${CMAKE_VERSION})")
+    endif()
+    include(CheckLanguage)
+    check_language(HIP)
+
+    if(CMAKE_HIP_COMPILER)
+        enable_language(HIP)
+        message(STATUS "Building HIP implementation")
+
+        add_executable(label_propagation_hip
+            src/hip/main_hip.cpp
+            src/hip/label_propagation_hip.hip
+        )
+        target_link_libraries(label_propagation_hip PRIVATE hypergraph_common cli_common)
+        target_include_directories(label_propagation_hip PRIVATE src/hip)
+        hip_configure_offload(label_propagation_hip)
+
+        add_executable(page_rank_hip
+            src/hip/main_pagerank_hip.cpp
+            src/hip/pagerank_hip.hip
+        )
+        target_link_libraries(page_rank_hip PRIVATE hypergraph_common cli_common)
+        target_include_directories(page_rank_hip PRIVATE src/hip)
+        hip_configure_offload(page_rank_hip)
+
+        # The mains include <hip/hip_runtime.h>, so compile them as HIP too
+        set_source_files_properties(src/hip/main_hip.cpp src/hip/main_pagerank_hip.cpp
+                                    PROPERTIES LANGUAGE HIP)
+    else()
+        message(WARNING "HIP compiler not found, skipping HIP implementation")
+        message(STATUS "To build HIP implementation:")
+        message(STATUS "  1. Install ROCm and ensure amdclang++ is available")
+        message(STATUS "  2. Set CMAKE_HIP_COMPILER or ROCM_PATH")
+        message(STATUS "  3. Set -DBUILD_HIP=ON")
+    endif()
+endif()
+
 # Print build summary
 message(STATUS "")
 message(STATUS "Build Configuration Summary:")
@@ -181,6 +223,7 @@ message(STATUS "  OpenMP: ${BUILD_OPENMP} | OMP Offload=${ENABLE_OPENMP_OFFLOAD}
 message(STATUS "  SYCL:   ${BUILD_SYCL}")  
 message(STATUS "  Kokkos: ${BUILD_KOKKOS}")
 message(STATUS "  CUDA:   ${BUILD_CUDA}")
+message(STATUS "  HIP:    ${BUILD_HIP}")
 message(STATUS "")
 
 # Add usage information
