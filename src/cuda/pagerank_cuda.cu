@@ -44,21 +44,34 @@ __global__ void pagerank_vertex_kernel(
     float inv_n,
     std::size_t num_vertices)
 {
-    const std::size_t v = static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
-    if (v >= num_vertices) return;
+    extern __shared__ float block_diff[];
 
-    float acc = 0.0f;
-    const std::size_t e_begin = vertex_offsets[v];
-    const std::size_t e_end   = vertex_offsets[v + 1];
-    for (std::size_t i = e_begin; i < e_end; ++i) {
-        const std::size_t e = vertex_edges[i];
-        const float delta_e = static_cast<float>(edge_sizes[e]);
-        if (delta_e > 0.0f) acc += h[e] / delta_e;
+    const std::size_t v = static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+
+    float local_diff = 0.0f;
+    if (v < num_vertices) {
+        float acc = 0.0f;
+        const std::size_t e_begin = vertex_offsets[v];
+        const std::size_t e_end   = vertex_offsets[v + 1];
+        for (std::size_t i = e_begin; i < e_end; ++i) {
+            const std::size_t e = vertex_edges[i];
+            const float delta_e = static_cast<float>(edge_sizes[e]);
+            if (delta_e > 0.0f) acc += h[e] / delta_e;
+        }
+
+        const float p_new = (1.0f - alpha) * inv_n + alpha * acc;
+        local_diff = fabsf(p_new - p[v]);
+        p[v] = p_new;
     }
 
-    const float p_new = (1.0f - alpha) * inv_n + alpha * acc;
-    atomicAdd(diff, fabsf(p_new - p[v]));
-    p[v] = p_new;
+    // Block-level tree reduction; one global atomic per block
+    block_diff[threadIdx.x] = local_diff;
+    __syncthreads();
+    for (unsigned int stride = blockDim.x / 2; stride > 0; stride >>= 1) {
+        if (threadIdx.x < stride) { block_diff[threadIdx.x] += block_diff[threadIdx.x + stride]; }
+        __syncthreads();
+    }
+    if (threadIdx.x == 0) { atomicAdd(diff, block_diff[0]); }
 }
 
 } // namespace
@@ -234,7 +247,8 @@ bool PageRankCUDA::run_iteration(
 
     // Vertex phase
     const dim3 vertex_grid((static_cast<unsigned int>(flat_hg.num_vertices) + block.x - 1) / block.x);
-    pagerank_vertex_kernel<<<vertex_grid, block>>>(
+    const std::size_t shmem = block.x * sizeof(float);
+    pagerank_vertex_kernel<<<vertex_grid, block, shmem>>>(
         flat_hg.vertex_edges, flat_hg.vertex_offsets,
         flat_hg.edge_sizes,
         d_h, d_p, d_diff,
